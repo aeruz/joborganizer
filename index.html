@@ -27,7 +27,8 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4B5563; }
-        body { background-color: #030712; color: #f3f4f6; overflow: hidden; /* Prevent body scroll for app-feel */ }
+        /* Prevent bounce scroll on iOS */
+        body { background-color: #030712; color: #f3f4f6; overflow: hidden; overscroll-behavior: none; }
         
         @keyframes pulse-red {
             0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
@@ -252,7 +253,7 @@
 
             return (
                 <div className="flex flex-col md:flex-row h-full gap-6 p-4 w-full">
-                    {/* Sidebar Presets (Responsive: Row on mobile/tablet portrait, Col on desktop/landscape) */}
+                    {/* Sidebar Presets */}
                     <div className="w-full md:w-24 flex flex-row md:flex-col gap-3 shrink-0 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
                         <div className="hidden md:block text-xs text-gray-500 font-bold uppercase text-center mb-2">Cells</div>
                         {presets.map(p => (
@@ -1081,10 +1082,10 @@
                 return grouped;
             }, [data.projects, columns, filterByMonth, currentDate, viewMode]);
 
-            if (loading) return <div className="h-screen w-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
+            if (loading) return <div className="fixed inset-0 bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
 
             return (
-                <div className="h-screen w-screen bg-gray-950 text-gray-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col overflow-hidden">
+                <div className="fixed inset-0 bg-gray-950 text-gray-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col overflow-hidden">
                     {/* Header */}
                     <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 shadow-2xl shrink-0">
                         <div className="max-w-full mx-auto px-4 h-16 flex items-center justify-between">
@@ -1152,16 +1153,18 @@
                                 <div className="h-full overflow-x-auto pb-4 custom-scrollbar">
                                     <div className="flex space-x-4 h-full min-w-max">
                                         {columns.map(col => (
-                                            <div key={col.id} className="w-[280px] flex flex-col h-full">
+                                            <div key={col.id} className="w-[280px] flex flex-col h-full min-h-0">
                                                 <div className="flex items-center mb-3 px-1 shrink-0">
                                                     <col.icon size={16} className={`mr-2 ${col.color}`} />
                                                     <h3 className="font-semibold text-gray-300 text-sm">{col.label}</h3>
                                                     <span className="ml-auto bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
                                                 </div>
-                                                <div className="bg-gray-900/30 rounded-xl p-2 flex-1 border border-gray-800/50 overflow-y-auto custom-scrollbar">
-                                                    {projectsByStatus[col.id]?.map(p => (
-                                                        <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
-                                                    ))}
+                                                <div className="bg-gray-900/30 rounded-xl p-2 flex-1 min-h-0 border border-gray-800/50 overflow-y-auto custom-scrollbar touch-pan-y overscroll-contain">
+                                                    <div className="space-y-3 pb-8"> 
+                                                        {projectsByStatus[col.id]?.map(p => (
+                                                            <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
