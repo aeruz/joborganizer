@@ -95,16 +95,33 @@
             const [initialTime, setInitialTime] = useState(0); // For progress calc
             const barRef = useRef(null);
             const [isDragging, setIsDragging] = useState(false);
+            
+            // Notification State Safety
+            const [notifSupported, setNotifSupported] = useState(false);
+            const [notifPermission, setNotifPermission] = useState('default');
 
-            // Request permission on mount
             useEffect(() => {
-                try {
-                    if ("Notification" in window && Notification.permission !== "granted") {
-                        // iOS often ignores this unless triggered by interaction, but we try anyway
-                        // We also added a manual button in the UI
-                    }
-                } catch(e) {}
+                if (typeof Notification !== 'undefined') {
+                    setNotifSupported(true);
+                    setNotifPermission(Notification.permission);
+                }
             }, []);
+
+            const requestNotif = () => {
+                if (typeof Notification !== 'undefined') {
+                    Notification.requestPermission().then(perm => {
+                        setNotifPermission(perm);
+                    });
+                }
+            };
+
+            const sendNotif = (msg) => {
+                if (notifSupported && notifPermission === 'granted') {
+                    try {
+                        new Notification("AnimTrack Focus", { body: msg });
+                    } catch (e) { console.error(e); }
+                }
+            };
 
             useEffect(() => {
                 let interval = null;
@@ -115,15 +132,11 @@
                             
                             // Notification Logic
                             if (newVal === 300) { // 5 minutes
-                                if (Notification.permission === "granted") {
-                                    new Notification("AnimTrack Focus", { body: "5 Minutes Left! Finish strong." });
-                                }
+                                sendNotif("5 Minutes Left! Finish strong.");
                             }
                             if (newVal === 0) {
                                 setIsActive(false);
-                                if (Notification.permission === "granted") {
-                                    new Notification("AnimTrack Focus", { body: "Time's Up!" });
-                                }
+                                sendNotif("Time's Up!");
                                 try {
                                     const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
                                     audio.play().catch(e=>{});
@@ -137,7 +150,7 @@
                     setTimeLeft(0);
                 }
                 return () => clearInterval(interval);
-            }, [isActive]);
+            }, [isActive, notifSupported, notifPermission]);
 
             const formatTime = (seconds) => {
                 const h = Math.floor(seconds / 3600);
@@ -179,14 +192,25 @@
             const handleMouseDown = (e) => { setIsDragging(true); updateTimeFromInteraction(e.clientX); };
             const handleMouseMove = (e) => { if (isDragging) updateTimeFromInteraction(e.clientX); };
             const handleMouseUp = () => { setIsDragging(false); };
-            const handleTouchStart = (e) => { setIsDragging(true); updateTimeFromInteraction(e.touches[0].clientX); };
-            const handleTouchMove = (e) => { if(isDragging) updateTimeFromInteraction(e.touches[0].clientX); };
+            
+            // Safe Touch Handlers
+            const handleTouchStart = (e) => { 
+                if (e.touches && e.touches[0]) {
+                    setIsDragging(true); 
+                    updateTimeFromInteraction(e.touches[0].clientX); 
+                }
+            };
+            const handleTouchMove = (e) => { 
+                if(isDragging && e.touches && e.touches[0]) {
+                    updateTimeFromInteraction(e.touches[0].clientX); 
+                }
+            };
 
             useEffect(() => {
                 if (isDragging) {
                     window.addEventListener('mousemove', handleMouseMove);
                     window.addEventListener('mouseup', handleMouseUp);
-                    window.addEventListener('touchmove', handleTouchMove);
+                    window.addEventListener('touchmove', handleTouchMove, { passive: false });
                     window.addEventListener('touchend', handleMouseUp);
                 } else {
                     window.removeEventListener('mousemove', handleMouseMove);
@@ -318,10 +342,11 @@
                         )}
                         
                         {/* Notification Status */}
-                        {Notification.permission === 'granted' ? 
+                        {notifSupported && (
+                            notifPermission === 'granted' ? 
                             <div className="absolute top-4 right-4 text-[10px] text-green-500 flex items-center"><Bell size={12} className="mr-1"/> Alerts On</div> :
-                            <button onClick={()=>Notification.requestPermission()} className="absolute top-4 right-4 text-[10px] text-gray-500 flex items-center hover:text-white bg-gray-800 px-2 py-1 rounded border border-gray-700"><Bell size={12} className="mr-1"/> Enable Alerts</button>
-                        }
+                            <button onClick={requestNotif} className="absolute top-4 right-4 text-[10px] text-gray-500 flex items-center hover:text-white bg-gray-800 px-2 py-1 rounded border border-gray-700"><Bell size={12} className="mr-1"/> Enable Alerts</button>
+                        )}
                     </div>
                 </div>
             );
