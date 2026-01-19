@@ -41,7 +41,7 @@
             Trash2, X, Save, TrendingUp, CreditCard, MonitorPlay, Briefcase, 
             ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
-            Download, Upload, FileJson, Sliders, WifiOff
+            Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
@@ -80,6 +80,184 @@
             </div>
         );
 
+        const CalendarView = ({ projects, currentDate, onEdit }) => {
+            // Generate full month grid weeks
+            const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+            
+            // Adjust to start on Sunday
+            const startDate = new Date(startOfMonth);
+            startDate.setDate(startDate.getDate() - startDate.getDay());
+            
+            // End on Saturday
+            const endDate = new Date(endOfMonth);
+            if (endDate.getDay() !== 6) {
+                endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
+            }
+
+            const weeks = [];
+            let currentWeek = [];
+            let dayIter = new Date(startDate);
+
+            // Generate weeks array
+            while (dayIter <= endDate) {
+                currentWeek.push(new Date(dayIter));
+                if (currentWeek.length === 7) {
+                    weeks.push(currentWeek);
+                    currentWeek = [];
+                }
+                dayIter.setDate(dayIter.getDate() + 1);
+            }
+
+            // Function to process a single week
+            const renderWeek = (weekDays) => {
+                const weekStart = weekDays[0];
+                const weekEnd = weekDays[6];
+                weekEnd.setHours(23, 59, 59, 999); 
+
+                // 1. Find projects active in this week
+                const weekProjects = projects.filter(p => {
+                    const pStart = p.startDate ? new Date(p.startDate) : (p.createdAt ? new Date(p.createdAt) : new Date());
+                    const pEnd = p.deadline ? new Date(p.deadline) : new Date();
+                    pStart.setHours(0,0,0,0);
+                    pEnd.setHours(23,59,59,999);
+                    // Check intersection
+                    return pStart <= weekEnd && pEnd >= weekStart;
+                });
+
+                // 2. Map projects to visual slots (lanes)
+                // Sort by start date first, then length (greedy packing)
+                weekProjects.sort((a,b) => {
+                     const startA = a.startDate ? new Date(a.startDate) : new Date(a.createdAt);
+                     const startB = b.startDate ? new Date(b.startDate) : new Date(b.createdAt);
+                     return startA - startB;
+                });
+
+                // Process layout
+                const processedItems = weekProjects.map(p => {
+                    const pStart = p.startDate ? new Date(p.startDate) : new Date(p.createdAt);
+                    const pEnd = p.deadline ? new Date(p.deadline) : new Date();
+                    pStart.setHours(0,0,0,0);
+                    pEnd.setHours(23,59,59,999);
+
+                    // Calculate start col (0-6) and end col (0-6) within this week
+                    let startCol = 0;
+                    let endCol = 6;
+                    
+                    // If project starts inside this week, adjust startCol
+                    if (pStart > weekStart) {
+                        startCol = Math.floor((pStart - weekStart) / (1000 * 60 * 60 * 24));
+                    }
+                    // If project ends inside this week, adjust endCol
+                    if (pEnd < weekEnd) {
+                        endCol = Math.floor((pEnd - weekStart) / (1000 * 60 * 60 * 24));
+                    }
+                    
+                    const colSpan = (endCol - startCol) + 1;
+                    return { ...p, startCol, colSpan };
+                });
+
+                // 3. Assign vertical lanes (simple algorithm to avoid overlap)
+                const itemsWithLane = [];
+                const grid = []; // grid[lane][day] = true/false
+
+                processedItems.forEach(item => {
+                    let lane = 0;
+                    let placed = false;
+                    while (!placed) {
+                        if (!grid[lane]) grid[lane] = Array(7).fill(false);
+                        
+                        // Check if lane is clear for item duration
+                        let isClear = true;
+                        for (let i = item.startCol; i < item.startCol + item.colSpan; i++) {
+                            if (grid[lane][i]) {
+                                isClear = false;
+                                break;
+                            }
+                        }
+
+                        if (isClear) {
+                            // Place it
+                            for (let i = item.startCol; i < item.startCol + item.colSpan; i++) {
+                                grid[lane][i] = true;
+                            }
+                            itemsWithLane.push({ ...item, lane });
+                            placed = true;
+                        } else {
+                            lane++;
+                        }
+                    }
+                });
+
+                return { weekDays, items: itemsWithLane, gridHeight: grid.length };
+            };
+
+            const renderedWeeks = weeks.map(renderWeek);
+
+            const getStatusColor = (status) => {
+                switch(status) {
+                    case 'paid': return 'bg-emerald-500 border-emerald-600 text-emerald-100';
+                    case 'completed': return 'bg-yellow-500 border-yellow-600 text-yellow-900';
+                    case 'active': case 'layout': case 'blocking': case 'splining': return 'bg-blue-500 border-blue-600 text-white';
+                    case 'polishing': return 'bg-purple-500 border-purple-600 text-white';
+                    case 'inquiry': return 'bg-gray-600 border-gray-700 text-gray-200';
+                    default: return 'bg-blue-500 border-blue-600 text-white';
+                }
+            };
+
+            return (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl shadow-xl overflow-hidden flex flex-col h-full">
+                    {/* Calendar Header */}
+                    <div className="grid grid-cols-7 border-b border-gray-800 bg-gray-950/50">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                            <div key={d} className="text-gray-500 text-[10px] uppercase font-bold text-center py-2">{d}</div>
+                        ))}
+                    </div>
+                    
+                    {/* Calendar Body */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-900">
+                        {renderedWeeks.map((weekData, wIdx) => (
+                            <div key={wIdx} className="relative border-b border-gray-800 min-h-[100px]">
+                                {/* Background Grid */}
+                                <div className="grid grid-cols-7 absolute inset-0 z-0">
+                                    {weekData.weekDays.map((day, dIdx) => {
+                                        const isToday = day.toDateString() === new Date().toDateString();
+                                        const isCurrent = day.getMonth() === currentDate.getMonth();
+                                        return (
+                                            <div key={dIdx} className={`border-r border-gray-800/50 p-1 ${isToday ? 'bg-blue-900/10' : ''}`}>
+                                                <span className={`text-xs font-bold ${isToday ? 'text-blue-400' : isCurrent ? 'text-gray-400' : 'text-gray-700'}`}>
+                                                    {day.getDate()}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Task Bars */}
+                                <div className="relative z-10 mt-6 pb-2 w-full" style={{ height: `${Math.max(weekData.gridHeight * 26, 20)}px` }}> 
+                                    {weekData.items.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => onEdit(item)}
+                                            className={`absolute h-5 rounded-md text-[10px] px-2 text-left truncate shadow-sm border-l-2 hover:brightness-110 transition-all ${getStatusColor(item.status)}`}
+                                            style={{
+                                                left: `${(item.startCol / 7) * 100 + 0.5}%`,
+                                                width: `${(item.colSpan / 7) * 100 - 1}%`,
+                                                top: `${item.lane * 26}px`
+                                            }}
+                                            title={`${item.name} (${item.client}) - ${item.status}`}
+                                        >
+                                            {item.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
         const ProjectCard = ({ project, onEdit, onViewDetails, moveStatus }) => {
             const isShot = project.payType === 'shot' || project.payType === 'retainer_work';
             const isRetainer = project.payType === 'retainer_work';
@@ -88,7 +266,7 @@
             
             const today = new Date();
             const deadline = project.deadline ? new Date(project.deadline) : null;
-            const created = new Date(project.createdAt); 
+            const start = project.startDate ? new Date(project.startDate) : (project.createdAt ? new Date(project.createdAt) : new Date());
             
             let daysLeft = null, isOverdue = false, border = 'border-gray-600', timeProg = 0;
             if(deadline && project.status!=='paid' && project.status!=='completed'){
@@ -97,8 +275,8 @@
                 if(daysLeft < 0) { isOverdue=true; border='border-red-500 shadow-red-900/20 shadow-lg'; timeProg=100; }
                 else {
                     if(daysLeft<=3) border='border-orange-500 shadow-orange-900/20 shadow-lg';
-                    const total = deadline - created;
-                    if(total>0) timeProg = Math.min(100, Math.max(0, ((today-created)/total)*100));
+                    const total = deadline - start;
+                    if(total>0) timeProg = Math.min(100, Math.max(0, ((today-start)/total)*100));
                 }
             }
 
@@ -314,18 +492,19 @@
         };
 
         const ProjectModal = ({ isOpen, onClose, onSave, onDelete, initialData, clients, projects }) => {
-            const [form, setForm] = useState({ name: '', client: '', projectName: '', payType: 'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, deadline: '', paymentDate: '', notes: '', progress: 0 });
+            const [form, setForm] = useState({ name: '', client: '', projectName: '', payType: 'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, startDate: '', deadline: '', paymentDate: '', notes: '', progress: 0 });
             const [del, setDel] = useState(false);
             const [clientConf, setClientConf] = useState(null);
 
             useEffect(() => {
                 if(isOpen) {
                     if(initialData) {
-                        setForm({...initialData, paymentDate:initialData.paymentDate||''});
+                        setForm({...initialData, startDate: initialData.startDate || (initialData.createdAt ? initialData.createdAt.split('T')[0] : ''), paymentDate:initialData.paymentDate||''});
                         setClientConf(clients.find(c=>c.name===initialData.client));
                     } else {
                         const defC = clients[0];
-                        setForm({ name: '', client: defC?.name||'', projectName: projects[0]||'', payType: defC?.type==='monthly'?'retainer_work':'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, deadline: '', paymentDate: '', notes: '', progress: 0 });
+                        const today = new Date().toISOString().split('T')[0];
+                        setForm({ name: '', client: defC?.name||'', projectName: projects[0]||'', payType: defC?.type==='monthly'?'retainer_work':'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, startDate: today, deadline: '', paymentDate: '', notes: '', progress: 0 });
                         setClientConf(defC);
                     }
                     setDel(false);
@@ -408,11 +587,21 @@
 
                             <input type="text" placeholder="Task Name" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
                             
-                            <div className="grid grid-cols-2 gap-4">
-                                <select className="bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
-                                    {['inquiry','layout','blocking','splining','polishing','completed','paid'].map(s=><option key={s} value={s}>{s}</option>)}
-                                </select>
-                                <input type="date" className="bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.status==='paid'?form.paymentDate:form.deadline} onChange={e=>form.status==='paid'?setForm({...form, paymentDate:e.target.value}):setForm({...form, deadline:e.target.value})} />
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="col-span-1">
+                                    <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">Start Date</label>
+                                    <input type="date" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">{form.status==='paid'?'Paid Date':'Deadline'}</label>
+                                    <input type="date" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.status==='paid'?form.paymentDate:form.deadline} onChange={e=>form.status==='paid'?setForm({...form, paymentDate:e.target.value}):setForm({...form, deadline:e.target.value})} />
+                                </div>
+                                <div className="col-span-1">
+                                    <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">Status</label>
+                                    <select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
+                                        {['inquiry','layout','blocking','splining','polishing','completed','paid'].map(s=><option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
                             </div>
 
                             <div className="flex justify-between pt-4 border-t border-gray-800">
@@ -435,6 +624,7 @@
             const [loading, setLoading] = useState(true);
             
             // UI State
+            const [viewMode, setViewMode] = useState('board'); // 'board' or 'calendar'
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isListManagerOpen, setIsListManagerOpen] = useState(false);
             const [editingProject, setEditingProject] = useState(null);
@@ -603,7 +793,7 @@
                 const grouped = {};
                 columns.forEach(c => grouped[c.id] = []);
                 let displayProjects = data.projects;
-                if (filterByMonth) {
+                if (filterByMonth && viewMode === 'board') {
                     displayProjects = data.projects.filter(p => {
                         const d = p.status === 'paid' ? p.paymentDate : p.deadline;
                         return isSameMonth(d, currentDate);
@@ -617,7 +807,7 @@
                     return new Date(a.deadline) - new Date(b.deadline);
                 }));
                 return grouped;
-            }, [data.projects, columns, filterByMonth, currentDate]);
+            }, [data.projects, columns, filterByMonth, currentDate, viewMode]);
 
             if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
 
@@ -657,29 +847,57 @@
                         </div>
 
                         <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-2 shrink-0">
-                            <h2 className="text-lg font-semibold text-white">Task Board</h2>
-                            <button onClick={() => setFilterByMonth(!filterByMonth)} className={`text-xs flex items-center px-3 py-1.5 rounded-lg border transition ${filterByMonth ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
-                                <Filter size={12} className="mr-2" /> {filterByMonth ? `Showing: ${currentDate.toLocaleString('default', { month: 'long' })}` : 'Showing: All Active'}
-                            </button>
+                            <div className="flex space-x-2 bg-gray-900 p-1 rounded-lg">
+                                <button 
+                                    onClick={() => setViewMode('board')}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode === 'board' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                >
+                                    <LayoutGrid size={14} className="inline mr-1" /> Board
+                                </button>
+                                <button 
+                                    onClick={() => setViewMode('calendar')}
+                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode === 'calendar' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                >
+                                    <CalendarDays size={14} className="inline mr-1" /> Calendar
+                                </button>
+                            </div>
+                            
+                            {viewMode === 'board' && (
+                                <button onClick={() => setFilterByMonth(!filterByMonth)} className={`text-xs flex items-center px-3 py-1.5 rounded-lg border transition ${filterByMonth ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                                    <Filter size={12} className="mr-2" /> {filterByMonth ? `Showing: ${currentDate.toLocaleString('default', { month: 'long' })}` : 'Showing: All Active'}
+                                </button>
+                            )}
                         </div>
 
-                        <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar">
-                            <div className="flex space-x-4 h-full min-w-max">
-                                {columns.map(col => (
-                                    <div key={col.id} className="w-[280px] flex flex-col h-full">
-                                        <div className="flex items-center mb-3 px-1 shrink-0">
-                                            <col.icon size={16} className={`mr-2 ${col.color}`} />
-                                            <h3 className="font-semibold text-gray-300 text-sm">{col.label}</h3>
-                                            <span className="ml-auto bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
-                                        </div>
-                                        <div className="bg-gray-900/30 rounded-xl p-2 flex-1 border border-gray-800/50 overflow-y-auto custom-scrollbar">
-                                            {projectsByStatus[col.id]?.map(p => (
-                                                <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
-                                            ))}
-                                        </div>
+                        <div className="flex-1 overflow-hidden relative">
+                            {viewMode === 'board' ? (
+                                <div className="h-full overflow-x-auto pb-4 custom-scrollbar">
+                                    <div className="flex space-x-4 h-full min-w-max">
+                                        {columns.map(col => (
+                                            <div key={col.id} className="w-[280px] flex flex-col h-full">
+                                                <div className="flex items-center mb-3 px-1 shrink-0">
+                                                    <col.icon size={16} className={`mr-2 ${col.color}`} />
+                                                    <h3 className="font-semibold text-gray-300 text-sm">{col.label}</h3>
+                                                    <span className="ml-auto bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
+                                                </div>
+                                                <div className="bg-gray-900/30 rounded-xl p-2 flex-1 border border-gray-800/50 overflow-y-auto custom-scrollbar">
+                                                    {projectsByStatus[col.id]?.map(p => (
+                                                        <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            ) : (
+                                <div className="h-full">
+                                    <CalendarView 
+                                        projects={data.projects} 
+                                        currentDate={currentDate} 
+                                        onEdit={(p) => {setEditingProject(p); setIsModalOpen(true);}} 
+                                    />
+                                </div>
+                            )}
                         </div>
                     </main>
 
