@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnimTrack - Offline 3D Manager</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Import Map for Modules -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+      }
+    }
+    </script>
+
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #111827; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+        body { background-color: #030712; color: #f3f4f6; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useMemo, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { 
+            Plus, DollarSign, Clock, CheckCircle, Film, Box, Calendar, Edit2, 
+            Trash2, X, Save, TrendingUp, CreditCard, MonitorPlay, Briefcase, 
+            ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
+            Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
+            Download, Upload, FileJson, Sliders, WifiOff
+        } from 'lucide-react';
+
+        // --- Local Storage Helper ---
+        const STORAGE_KEY = 'animtrack_db_v1';
+        
+        const loadData = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) return JSON.parse(saved);
+            return {
+                projects: [],
+                clients: [
+                    { name: 'Example Studio', type: 'standard', salary: 0, payDay: 25 },
+                    { name: 'Retainer Client', type: 'monthly', salary: 2500, payDay: 25 }
+                ],
+                projectList: ['Season 1', 'Commercial']
+            };
+        };
+
+        const saveData = (data) => {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        };
+
+        // --- Components ---
+
+        const StatCard = ({ title, value, icon: Icon, colorClass, subtext }) => (
+            <div className="bg-gray-800 border border-gray-700 p-5 rounded-xl flex items-center space-x-4 shadow-lg hover:border-gray-600 transition-colors relative overflow-hidden group">
+                <div className={`p-3 rounded-lg ${colorClass} bg-opacity-20`}>
+                <Icon className={`w-6 h-6 ${colorClass.replace('bg-', 'text-')}`} />
+                </div>
+                <div className="z-10">
+                <p className="text-gray-400 text-sm font-medium">{title}</p>
+                <h3 className="text-2xl font-bold text-white">{value}</h3>
+                {subtext && <p className="text-xs text-gray-500 mt-1">{subtext}</p>}
+                </div>
+                <Icon className={`absolute -right-4 -bottom-4 w-24 h-24 opacity-5 ${colorClass.replace('bg-', 'text-')} transform -rotate-12 group-hover:scale-110 transition-transform`} />
+            </div>
+        );
+
+        const ProjectCard = ({ project, onEdit, onViewDetails, moveStatus }) => {
+            const isShot = project.payType === 'shot' || project.payType === 'retainer_work';
+            const isRetainer = project.payType === 'retainer_work';
+            const isSalary = project.payType === 'retainer_salary';
+            const val = isShot ? (project.shotRate * project.shotCount) : project.fixedPrice;
+            
+            const today = new Date();
+            const deadline = project.deadline ? new Date(project.deadline) : null;
+            const created = new Date(project.createdAt); 
+            
+            let daysLeft = null, isOverdue = false, border = 'border-gray-600', timeProg = 0;
+            if(deadline && project.status!=='paid' && project.status!=='completed'){
+                const diff = deadline - today;
+                daysLeft = Math.ceil(diff/(1000*60*60*24));
+                if(daysLeft < 0) { isOverdue=true; border='border-red-500 shadow-red-900/20 shadow-lg'; timeProg=100; }
+                else {
+                    if(daysLeft<=3) border='border-orange-500 shadow-orange-900/20 shadow-lg';
+                    const total = deadline - created;
+                    if(total>0) timeProg = Math.min(100, Math.max(0, ((today-created)/total)*100));
+                }
+            }
+
+            let Icon = Box;
+            if(isSalary) Icon = Calendar;
+            if(isShot) Icon = Film;
+            if(isRetainer) Icon = ShieldCheck;
+
+            return (
+                <div onClick={() => onViewDetails(project)} className={`bg-gray-800 rounded-xl p-4 mb-3 border-l-4 ${border} shadow-md hover:shadow-xl hover:bg-gray-800/80 cursor-pointer transition-all group relative`}>
+                    <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1 pr-2 overflow-hidden">
+                            <div className="flex items-center text-xs text-blue-400 font-semibold mb-1 truncate">
+                                <Briefcase size={10} className="mr-1" /> {project.client} {project.projectName && <span className="mx-1 text-gray-600">/</span>} {project.projectName}
+                            </div>
+                            <h4 className="font-bold text-base text-white truncate">{project.name}</h4>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); onEdit(project); }} className="text-gray-500 hover:text-white p-1 hover:bg-gray-700 rounded"><Edit2 size={14} /></button>
+                    </div>
+                    <div className={`flex items-center justify-between p-2 rounded-lg mb-3 border ${isRetainer ? 'bg-purple-900/20 border-purple-500/30 border-dashed' : isSalary ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-gray-900/60 border-gray-700/50'}`}>
+                        <div className="flex flex-col">
+                            <span className="text-[10px] text-gray-500 uppercase">Type</span>
+                            <span className={`text-xs font-medium capitalize flex items-center ${isRetainer?'text-purple-300':isSalary?'text-emerald-300':'text-gray-300'}`}><Icon size={10} className="mr-1"/>{isSalary?'Salary':isRetainer?'Covered':project.payType}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-gray-500 uppercase">Value</span>
+                            <span className={`text-sm font-bold ${isRetainer?'text-purple-400':'text-emerald-400'}`}>{isRetainer && val>0 ? `(Est. $${val.toLocaleString()})` : `$${val.toLocaleString()}`}</span>
+                        </div>
+                    </div>
+                    {isShot && <div className="flex justify-between text-xs text-gray-500 mb-3 px-1"><span>{project.shotCount} Shots</span><span>@ ${project.shotRate}/shot</span></div>}
+                    
+                    <div className="space-y-2 mb-3">
+                        <div>
+                            <div className="flex justify-between text-[10px] text-gray-400 mb-0.5"><span>Progress</span><span>{project.progress||0}%</span></div>
+                            <div className="w-full bg-gray-700 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${project.progress||0}%`}}></div></div>
+                        </div>
+                        {deadline && project.status!=='paid' && project.status!=='completed' && (
+                            <div>
+                                <div className="flex justify-between text-[10px] text-gray-400 mb-0.5"><span>Deadline</span><span className={isOverdue?"text-red-400 font-bold":""}>{isOverdue?"OVERDUE":`${daysLeft} days`}</span></div>
+                                <div className="w-full bg-gray-700 rounded-full h-1.5"><div className={`h-1.5 rounded-full ${timeProg>90?'bg-red-500':timeProg>75?'bg-orange-500':'bg-gray-500'}`} style={{width: `${timeProg}%`}}></div></div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex justify-between mt-2 pt-2 border-t border-gray-700/50">
+                        {project.status !== 'paid' ? (
+                            <button onClick={(e) => { e.stopPropagation(); moveStatus(project, 'forward'); }} className="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center">Next <ArrowRight size={10} className="ml-1"/></button>
+                        ) : <span className="text-[10px] text-emerald-500 font-bold border border-emerald-500/30 px-2 py-1 rounded bg-emerald-500/10">Paid</span>}
+                        <div className="flex items-center space-x-2">
+                            {isOverdue ? <span className="text-xs text-red-400 font-bold flex items-center"><AlertCircle size={12} className="mr-1"/> Overdue</span> : <span className="text-xs text-gray-500 flex items-center"><Clock size={12} className="mr-1"/> {deadline ? deadline.toLocaleDateString(undefined, {month:'short', day:'numeric'}) : 'No Date'}</span>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProjectDetails = ({ project, onClose, onUpdate, onEdit }) => {
+            const [notes, setNotes] = useState(project.notes || '');
+            const [progress, setProgress] = useState(project.progress || 0);
+            const [isSaving, setIsSaving] = useState(false);
+            const timer = useRef(null);
+
+            const save = (n, p) => {
+                setIsSaving(true);
+                onUpdate(project.id, { notes: n, progress: p });
+                setTimeout(()=>setIsSaving(false), 500);
+            };
+
+            const changeNotes = (e) => { setNotes(e.target.value); clearTimeout(timer.current); timer.current = setTimeout(() => save(e.target.value, progress), 1000); };
+            const changeProg = (e) => { setProgress(e.target.value); clearTimeout(timer.current); timer.current = setTimeout(() => save(notes, e.target.value), 500); };
+
+            return (
+                <div className="fixed inset-0 z-50 flex justify-end">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+                    <div className="relative w-full max-w-2xl bg-gray-900 h-full border-l border-gray-800 shadow-2xl flex flex-col">
+                        <div className="p-6 border-b border-gray-800 bg-gray-900 z-10 flex justify-between items-start">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">{project.name}</h2>
+                                <p className="text-gray-400">{project.client} / {project.projectName}</p>
+                            </div>
+                            <div className="flex space-x-2">
+                                <button onClick={onEdit} className="p-2 hover:bg-gray-800 rounded text-gray-400"><Edit2/></button>
+                                <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded text-gray-400"><X/></button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                            <div className="mb-6 bg-gray-800 p-4 rounded-xl border border-gray-700">
+                                <div className="flex justify-between mb-2 text-sm font-bold text-gray-300"><span>Progress</span><span className="text-blue-400">{progress}%</span></div>
+                                <input type="range" min="0" max="100" value={progress} onChange={changeProg} className="w-full h-2 bg-gray-700 rounded-lg accent-blue-500" />
+                            </div>
+                            <div className="flex flex-col h-[calc(100%-150px)]">
+                                <div className="flex justify-between mb-3 text-sm font-bold text-gray-300">
+                                    <span>Notes</span>
+                                    {isSaving && <span className="text-blue-400 animate-pulse text-xs">Saving...</span>}
+                                </div>
+                                <textarea className="w-full h-full bg-gray-950 border border-gray-800 rounded-xl p-6 text-gray-300 outline-none resize-none font-mono text-sm shadow-inner" value={notes} onChange={changeNotes} placeholder="Type notes..." />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, initialProjects, allData, onImport }) => {
+            const [activeTab, setActiveTab] = useState('clients');
+            const [clients, setClients] = useState(initialClients);
+            const [projects, setProjects] = useState(initialProjects);
+            const [clientForm, setClientForm] = useState({ name: '', type: 'standard', salary: 0, payDay: 25 });
+            const [projInput, setProjInput] = useState('');
+            const fileRef = useRef(null);
+
+            useEffect(() => { setClients(initialClients); setProjects(initialProjects); }, [initialClients, initialProjects, isOpen]);
+            if(!isOpen) return null;
+
+            const saveClient = () => {
+                if(!clientForm.name) return;
+                const newClients = [...clients, clientForm];
+                setClients(newClients);
+                onUpdateLists(newClients, projects);
+                setClientForm({ name: '', type: 'standard', salary: 0, payDay: 25 });
+            };
+            const deleteClient = (idx) => {
+                if(confirm('Delete?')) {
+                    const n = clients.filter((_,i)=>i!==idx);
+                    setClients(n);
+                    onUpdateLists(n, projects);
+                }
+            }
+            const exportData = () => {
+                const blob = new Blob([JSON.stringify(allData,null,2)], {type : 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `animtrack_backup_${new Date().toISOString().split('T')[0]}.json`; a.click();
+            };
+            const importData = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const r = new FileReader();
+                r.onload = (ev) => {
+                    try {
+                        const d = JSON.parse(ev.target.result);
+                        if(onImport(d)) {
+                            alert('Imported successfully! Updating view...');
+                            onClose();
+                        } else alert('Invalid file format.');
+                    } catch(err) { alert('Error parsing JSON'); }
+                };
+                r.readAsText(file);
+            }
+
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-700 w-full max-w-2xl rounded-2xl h-[600px] flex flex-col">
+                        <div className="flex border-b border-gray-800">
+                            <button onClick={()=>setActiveTab('clients')} className={`flex-1 py-3 text-sm font-bold ${activeTab==='clients'?'bg-gray-800 text-white border-b-2 border-blue-500':'text-gray-400'}`}>Clients</button>
+                            <button onClick={()=>setActiveTab('projects')} className={`flex-1 py-3 text-sm font-bold ${activeTab==='projects'?'bg-gray-800 text-white border-b-2 border-purple-500':'text-gray-400'}`}>Projects</button>
+                            <button onClick={()=>setActiveTab('data')} className={`flex-1 py-3 text-sm font-bold ${activeTab==='data'?'bg-gray-800 text-white border-b-2 border-emerald-500':'text-gray-400'}`}>Data</button>
+                            <button onClick={onClose} className="px-4 text-gray-400 hover:text-white"><X/></button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                            {activeTab==='clients' && (
+                                <div className="flex h-full gap-6">
+                                    <div className="w-1/3 border-r border-gray-800 pr-4 space-y-2">
+                                        {clients.map((c,i)=>(
+                                            <div key={i} className="bg-gray-800 p-2 rounded flex justify-between items-center">
+                                                <div><p className="text-sm">{c.name}</p><p className="text-[10px] text-gray-500 uppercase">{c.type}</p></div>
+                                                <button onClick={()=>deleteClient(i)} className="text-gray-500 hover:text-red-400"><Trash2 size={12}/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="w-2/3 space-y-4">
+                                        <input className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white" placeholder="Client Name" value={clientForm.name} onChange={e=>setClientForm({...clientForm, name:e.target.value})} />
+                                        <div className="flex gap-2">
+                                            <button onClick={()=>setClientForm({...clientForm, type:'standard'})} className={`flex-1 py-2 text-xs border rounded ${clientForm.type==='standard'?'bg-blue-600 border-blue-500':'border-gray-700'}`}>Standard</button>
+                                            <button onClick={()=>setClientForm({...clientForm, type:'monthly'})} className={`flex-1 py-2 text-xs border rounded ${clientForm.type==='monthly'?'bg-purple-600 border-purple-500':'border-gray-700'}`}>Retainer</button>
+                                        </div>
+                                        {clientForm.type==='monthly' && (
+                                            <div className="space-y-2 bg-gray-800/50 p-2 rounded">
+                                                <input type="number" placeholder="Salary" className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white" value={clientForm.salary} onChange={e=>setClientForm({...clientForm, salary:e.target.value})} />
+                                                <input type="number" placeholder="Pay Day (e.g. 25)" className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm text-white" value={clientForm.payDay} onChange={e=>setClientForm({...clientForm, payDay:e.target.value})} />
+                                            </div>
+                                        )}
+                                        <button onClick={saveClient} className="w-full bg-emerald-600 hover:bg-emerald-500 py-2 rounded text-sm font-bold">Add Client</button>
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab==='projects' && (
+                                <div>
+                                    <div className="flex gap-2 mb-4">
+                                        <input className="flex-1 bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white" placeholder="New Project Name" value={projInput} onChange={e=>setProjInput(e.target.value)} />
+                                        <button onClick={()=>{if(projInput){const n=[...projects, projInput]; setProjects(n); onUpdateLists(clients, n); setProjInput('');}}} className="bg-blue-600 px-4 rounded"><Plus/></button>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {projects.map((p,i)=>(
+                                            <div key={i} className="bg-gray-800 p-2 rounded flex justify-between">
+                                                <span>{p}</span>
+                                                <button onClick={()=>{const n=projects.filter((_,idx)=>idx!==i); setProjects(n); onUpdateLists(clients,n);}}><Trash2 size={14}/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {activeTab==='data' && (
+                                <div className="flex flex-col items-center justify-center h-full space-y-4">
+                                    <button onClick={exportData} className="flex flex-col items-center p-6 bg-gray-800 border border-gray-700 rounded-xl hover:border-emerald-500"><Download className="mb-2 text-emerald-500"/> Export JSON</button>
+                                    <button onClick={()=>fileRef.current.click()} className="flex flex-col items-center p-6 bg-gray-800 border border-gray-700 rounded-xl hover:border-blue-500"><Upload className="mb-2 text-blue-500"/> Import JSON</button>
+                                    <input type="file" ref={fileRef} className="hidden" accept=".json" onChange={importData} />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProjectModal = ({ isOpen, onClose, onSave, onDelete, initialData, clients, projects }) => {
+            const [form, setForm] = useState({ name: '', client: '', projectName: '', payType: 'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, deadline: '', paymentDate: '', notes: '', progress: 0 });
+            const [del, setDel] = useState(false);
+            const [clientConf, setClientConf] = useState(null);
+
+            useEffect(() => {
+                if(isOpen) {
+                    if(initialData) {
+                        setForm({...initialData, paymentDate:initialData.paymentDate||''});
+                        setClientConf(clients.find(c=>c.name===initialData.client));
+                    } else {
+                        const defC = clients[0];
+                        setForm({ name: '', client: defC?.name||'', projectName: projects[0]||'', payType: defC?.type==='monthly'?'retainer_work':'fixed', status: 'inquiry', fixedPrice: 0, shotRate: 0, shotCount: 1, deadline: '', paymentDate: '', notes: '', progress: 0 });
+                        setClientConf(defC);
+                    }
+                    setDel(false);
+                }
+            }, [isOpen, initialData, clients, projects]);
+
+            const changeClient = (e) => {
+                const n = e.target.value;
+                const c = clients.find(cl=>cl.name===n);
+                setClientConf(c);
+                setForm({...form, client: n, payType: c?.type==='monthly'?'retainer_work':'fixed', fixedPrice: 0});
+            };
+
+            const setRetainerMode = (mode) => {
+                if(mode==='payment') {
+                    const d = new Date(); d.setDate(clientConf?.payDay||25);
+                    setForm({...form, payType:'retainer_salary', name:`${d.toLocaleString('default',{month:'long'})} Salary`, fixedPrice: parseFloat(clientConf?.salary)||0, deadline: d.toISOString().split('T')[0]});
+                } else {
+                    setForm({...form, payType:'retainer_work', name:'', fixedPrice:0, deadline:''});
+                }
+            };
+
+            if(!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-700 w-full max-w-lg rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-white">{initialData?'Edit':'New'} Task</h2>
+                            <button onClick={onClose}><X/></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-xs text-gray-400">Client</label>
+                                    <select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.client} onChange={changeClient}>
+                                        {clients.map(c=><option key={c.name} value={c.name}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400">Project</label>
+                                    <select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.projectName} onChange={e=>setForm({...form, projectName:e.target.value})}>
+                                        <option value="">Select...</option>
+                                        {projects.map(p=><option key={p} value={p}>{p}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
+                                {clientConf?.type === 'monthly' ? (
+                                    <div className="space-y-4">
+                                        <div className="flex gap-2">
+                                            <button onClick={()=>setRetainerMode('work')} className={`flex-1 py-2 text-xs rounded border ${form.payType==='retainer_work'?'bg-purple-600 border-purple-500':'border-gray-700'}`}>Log Work</button>
+                                            <button onClick={()=>setRetainerMode('payment')} className={`flex-1 py-2 text-xs rounded border ${form.payType==='retainer_salary'?'bg-emerald-600 border-emerald-500':'border-gray-700'}`}>Log Salary</button>
+                                        </div>
+                                        {form.payType === 'retainer_work' ? (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <input type="number" placeholder="Rate" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} />
+                                                <input type="number" placeholder="Count" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} />
+                                            </div>
+                                        ) : (
+                                            <div className="text-center text-emerald-400 font-bold text-lg">${form.fixedPrice}</div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="flex gap-2">
+                                            <button onClick={()=>setForm({...form, payType:'fixed'})} className={`flex-1 py-2 text-xs rounded border ${form.payType==='fixed'?'bg-blue-600 border-blue-500':'border-gray-700'}`}>Fixed</button>
+                                            <button onClick={()=>setForm({...form, payType:'shot'})} className={`flex-1 py-2 text-xs rounded border ${form.payType==='shot'?'bg-blue-600 border-blue-500':'border-gray-700'}`}>Shot</button>
+                                        </div>
+                                        {form.payType==='shot' ? (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <input type="number" placeholder="Rate" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} />
+                                                <input type="number" placeholder="Count" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} />
+                                            </div>
+                                        ) : <input type="number" placeholder="Amount" className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.fixedPrice} onChange={e=>setForm({...form, fixedPrice:e.target.value})} />}
+                                    </div>
+                                )}
+                            </div>
+
+                            <input type="text" placeholder="Task Name" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                                <select className="bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
+                                    {['inquiry','layout','blocking','splining','polishing','completed','paid'].map(s=><option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <input type="date" className="bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.status==='paid'?form.paymentDate:form.deadline} onChange={e=>form.status==='paid'?setForm({...form, paymentDate:e.target.value}):setForm({...form, deadline:e.target.value})} />
+                            </div>
+
+                            <div className="flex justify-between pt-4 border-t border-gray-800">
+                                {initialData ? <button onClick={()=>{if(del){onDelete(initialData.id); onClose();}else setDel(true)}} className={`text-sm px-3 py-2 rounded ${del?'bg-red-600 text-white':'text-red-400 hover:bg-gray-800'}`}>{del?'Confirm':'Delete'}</button> : <div></div>}
+                                <div className="flex gap-2">
+                                    <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white">Cancel</button>
+                                    <button onClick={()=>{onSave(form)}} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold">Save</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main Application ---
+        function App() {
+            // State
+            const [data, setData] = useState({ projects: [], clients: [], projectList: [] });
+            const [loading, setLoading] = useState(true);
+            
+            // UI State
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isListManagerOpen, setIsListManagerOpen] = useState(false);
+            const [editingProject, setEditingProject] = useState(null);
+            const [viewingProject, setViewingProject] = useState(null);
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [filterByMonth, setFilterByMonth] = useState(false);
+
+            // Load Data on Mount
+            useEffect(() => {
+                const loaded = loadData();
+                setData(loaded);
+                setLoading(false);
+            }, []);
+
+            // Save Data Effect (whenever data changes)
+            useEffect(() => {
+                if (!loading) {
+                    saveData(data);
+                }
+            }, [data, loading]);
+
+            // --- Handlers ---
+
+            const handleUpdateLists = (newClients, newProjectList) => {
+                setData(prev => ({ ...prev, clients: newClients, projectList: newProjectList }));
+            };
+
+            const handleSaveProject = (formProject) => {
+                const now = new Date().toISOString();
+                let updatedProjects;
+
+                if (editingProject) {
+                    // Update existing
+                    updatedProjects = data.projects.map(p => 
+                        p.id === editingProject.id 
+                        ? { ...p, ...formProject, updatedAt: now } 
+                        : p
+                    );
+                } else {
+                    // Create new
+                    const newProject = {
+                        ...formProject,
+                        id: crypto.randomUUID(), // Generate local ID
+                        createdAt: now,
+                        updatedAt: now
+                    };
+                    updatedProjects = [...data.projects, newProject];
+                }
+                
+                setData(prev => ({ ...prev, projects: updatedProjects }));
+                setIsModalOpen(false);
+                setEditingProject(null);
+            };
+
+            const handleDeleteProject = (id) => {
+                setData(prev => ({ ...prev, projects: prev.projects.filter(p => p.id !== id) }));
+                if (viewingProject?.id === id) setViewingProject(null);
+            };
+
+            const handleUpdateNotes = (projectId, updates) => {
+                setData(prev => ({
+                    ...prev,
+                    projects: prev.projects.map(p => p.id === projectId ? { ...p, ...updates } : p)
+                }));
+                
+                // Also update viewing project in real-time
+                if (viewingProject?.id === projectId) {
+                    setViewingProject(prev => ({ ...prev, ...updates }));
+                }
+            };
+
+            const handleMoveStatus = (project, direction) => {
+                const statuses = ['inquiry', 'layout', 'blocking', 'splining', 'polishing', 'completed', 'paid'];
+                const currentIndex = statuses.indexOf(project.status);
+                let newIndex = currentIndex;
+                if (direction === 'forward' && currentIndex < statuses.length - 1) newIndex++;
+                if (direction === 'back' && currentIndex > 0) newIndex--;
+
+                if (newIndex !== currentIndex) {
+                    const newStatus = statuses[newIndex];
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    let updates = { status: newStatus };
+                    if (newStatus === 'paid' && !project.paymentDate) updates.paymentDate = todayStr;
+
+                    // Batch Update Logic for Retainers
+                    const isRetainer = project.payType.includes('retainer') || project.payType === 'monthly';
+                    
+                    if (newStatus === 'paid' && isRetainer) {
+                        // Move ALL completed items for this client to paid
+                        const updatedProjects = data.projects.map(p => {
+                            // Update the target project
+                            if (p.id === project.id) return { ...p, ...updates };
+                            
+                            // Update peers
+                            if (p.client === project.client && p.status === 'completed') {
+                                return { ...p, status: 'paid', paymentDate: p.paymentDate || todayStr };
+                            }
+                            return p;
+                        });
+                        setData(prev => ({ ...prev, projects: updatedProjects }));
+                    } else {
+                        // Single update
+                        const updatedProjects = data.projects.map(p => 
+                            p.id === project.id ? { ...p, ...updates } : p
+                        );
+                        setData(prev => ({ ...prev, projects: updatedProjects }));
+                    }
+                }
+            };
+
+            const handleImportData = (importedData) => {
+                // Validate structure simply
+                if (importedData.projects && importedData.clients) {
+                    setData({
+                        projects: importedData.projects || [],
+                        clients: importedData.clients || [],
+                        projectList: importedData.projectList || importedData.settings?.projects || [] // Handle legacy structure
+                    });
+                    return true;
+                }
+                return false;
+            };
+
+            // --- Stats Calculation ---
+            const changeMonth = (dir) => {
+                const d = new Date(currentDate);
+                d.setMonth(currentDate.getMonth() + dir);
+                setCurrentDate(d);
+            };
+
+            const isSameMonth = (dStr, target) => {
+                if (!dStr) return false;
+                const d = new Date(dStr);
+                return d.getMonth() === target.getMonth() && d.getFullYear() === target.getFullYear();
+            };
+
+            const stats = useMemo(() => {
+                let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
+                data.projects.forEach(p => {
+                    let val = 0;
+                    if (p.payType === 'shot') val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
+                    else if (p.payType === 'fixed' || p.payType === 'retainer_salary') val = parseFloat(p.fixedPrice||0);
+                    
+                    if (p.status === 'paid') {
+                        if (isSameMonth(p.paymentDate, currentDate)) monthlyEarned += val;
+                    } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
+                        if (p.deadline && isSameMonth(p.deadline, currentDate)) monthlyProjected += val;
+                        if (p.status === 'completed') pendingPayment += val;
+                    }
+                });
+                return { monthlyEarned, monthlyProjected, pendingPayment };
+            }, [data.projects, currentDate]);
+
+            // --- Views ---
+            const columns = [
+                { id: 'inquiry', label: 'Inquiry', icon: Briefcase, color: 'text-yellow-500' },
+                { id: 'layout', label: 'Layout / Ref', icon: Layers, color: 'text-blue-400' },
+                { id: 'blocking', label: 'Blocking', icon: Box, color: 'text-blue-500' },
+                { id: 'splining', label: 'Splining', icon: MonitorPlay, color: 'text-purple-400' },
+                { id: 'polishing', label: 'Clean / Polish', icon: Film, color: 'text-purple-500' },
+                { id: 'completed', label: 'Pending Pay', icon: CheckCircle, color: 'text-emerald-500' },
+                { id: 'paid', label: 'Paid', icon: DollarSign, color: 'text-emerald-300' },
+            ];
+
+            const projectsByStatus = useMemo(() => {
+                const grouped = {};
+                columns.forEach(c => grouped[c.id] = []);
+                let displayProjects = data.projects;
+                if (filterByMonth) {
+                    displayProjects = data.projects.filter(p => {
+                        const d = p.status === 'paid' ? p.paymentDate : p.deadline;
+                        return isSameMonth(d, currentDate);
+                    });
+                }
+                displayProjects.forEach(p => {
+                    if (grouped[p.status]) grouped[p.status].push(p);
+                });
+                Object.keys(grouped).forEach(k => grouped[k].sort((a,b) => {
+                    if(!a.deadline) return 1; if(!b.deadline) return -1;
+                    return new Date(a.deadline) - new Date(b.deadline);
+                }));
+                return grouped;
+            }, [data.projects, columns, filterByMonth, currentDate]);
+
+            if (loading) return <div className="min-h-screen bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
+
+            return (
+                <div className="min-h-screen bg-gray-950 text-gray-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col">
+                    {/* Header */}
+                    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 shadow-2xl shrink-0">
+                        <div className="max-w-full mx-auto px-4 h-16 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
+                                    <Box className="text-white w-5 h-5" />
+                                </div>
+                                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400 hidden sm:block">AnimTrack</h1>
+                                <span className="ml-2 text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700 flex items-center"><WifiOff size={10} className="mr-1"/> Offline</span>
+                            </div>
+                            <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700 mx-2">
+                                <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronLeft size={18}/></button>
+                                <div className="flex items-center space-x-2 px-3 min-w-[120px] justify-center">
+                                    <Calendar size={14} className="text-blue-400"/>
+                                    <span className="text-sm font-bold text-gray-200">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+                                </div>
+                                <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronRight size={18}/></button>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <button onClick={() => setIsListManagerOpen(true)} className="p-2 text-gray-400 bg-gray-800 border border-gray-700 rounded-lg hover:text-white"><Settings size={18} /></button>
+                                <button onClick={() => { setEditingProject(null); setIsModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center shadow-lg"><Plus size={16} className="mr-2" /> New Task</button>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-hidden flex flex-col p-4 max-w-full">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
+                            <StatCard title={`Projected (${currentDate.toLocaleString('default', { month: 'short' })})`} value={`$${stats.monthlyProjected.toLocaleString()}`} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
+                            <StatCard title={`Earned (${currentDate.toLocaleString('default', { month: 'short' })})`} value={`$${stats.monthlyEarned.toLocaleString()}`} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
+                            <StatCard title="Pending Pay" value={`$${stats.pendingPayment.toLocaleString()}`} icon={Clock} colorClass="bg-yellow-500 text-yellow-500" />
+                        </div>
+
+                        <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-2 shrink-0">
+                            <h2 className="text-lg font-semibold text-white">Task Board</h2>
+                            <button onClick={() => setFilterByMonth(!filterByMonth)} className={`text-xs flex items-center px-3 py-1.5 rounded-lg border transition ${filterByMonth ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
+                                <Filter size={12} className="mr-2" /> {filterByMonth ? `Showing: ${currentDate.toLocaleString('default', { month: 'long' })}` : 'Showing: All Active'}
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-x-auto pb-4 custom-scrollbar">
+                            <div className="flex space-x-4 h-full min-w-max">
+                                {columns.map(col => (
+                                    <div key={col.id} className="w-[280px] flex flex-col h-full">
+                                        <div className="flex items-center mb-3 px-1 shrink-0">
+                                            <col.icon size={16} className={`mr-2 ${col.color}`} />
+                                            <h3 className="font-semibold text-gray-300 text-sm">{col.label}</h3>
+                                            <span className="ml-auto bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
+                                        </div>
+                                        <div className="bg-gray-900/30 rounded-xl p-2 flex-1 border border-gray-800/50 overflow-y-auto custom-scrollbar">
+                                            {projectsByStatus[col.id]?.map(p => (
+                                                <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+
+                    {/* Modals & Components */}
+                    <ProjectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveProject} onDelete={handleDeleteProject} initialData={editingProject} clients={data.clients} projects={data.projectList} />
+                    <ListManager isOpen={isListManagerOpen} onClose={() => setIsListManagerOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} initialProjects={data.projectList} allData={data} onImport={handleImportData} />
+                    {viewingProject && <ProjectDetails project={viewingProject} onClose={() => setViewingProject(null)} onUpdate={handleUpdateNotes} onEdit={() => {setViewingProject(null); setEditingProject(viewingProject); setIsModalOpen(true);}} />}
+                </div>
+            );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
