@@ -34,14 +34,6 @@
 
         /* Prevent bounce scroll on iOS */
         body { background-color: #030712; color: #f3f4f6; overflow: hidden; overscroll-behavior: none; }
-        
-        @keyframes pulse-red {
-            0%, 100% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); }
-            50% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.6); border-color: rgba(239, 68, 68, 1); }
-        }
-        .animate-pulse-red {
-            animation: pulse-red 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
     </style>
 </head>
 <body>
@@ -56,11 +48,11 @@
             ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
-            Timer, Zap, Hourglass, Play, Pause, RotateCcw, Bell
+            BarChart2, PenTool, Sparkles, Image as ImageIcon
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
-        const STORAGE_KEY = 'animtrack_db_v1';
+        const STORAGE_KEY = 'animtrack_db_v2'; 
         
         const loadData = () => {
             const saved = localStorage.getItem(STORAGE_KEY);
@@ -82,292 +74,40 @@
         // --- Components ---
 
         const StatCard = ({ title, value, icon: Icon, colorClass, subtext }) => (
-            <div className="bg-gray-800 border border-gray-700 p-5 rounded-xl flex items-center space-x-4 shadow-lg hover:border-gray-600 transition-colors relative overflow-hidden group">
-                <div className={`p-3 rounded-lg ${colorClass} bg-opacity-20`}>
-                <Icon className={`w-6 h-6 ${colorClass.replace('bg-', 'text-')}`} />
+            <div className="bg-gray-800 border border-gray-700 p-3 sm:p-4 rounded-xl flex items-center space-x-3 shadow-lg hover:border-gray-600 transition-colors relative overflow-hidden group">
+                <div className={`p-2 rounded-lg ${colorClass} bg-opacity-20`}>
+                <Icon className={`w-4 h-4 sm:w-5 sm:h-5 ${colorClass.replace('bg-', 'text-')}`} />
                 </div>
-                <div className="z-10">
-                <p className="text-gray-400 text-sm font-medium">{title}</p>
-                <h3 className="text-2xl font-bold text-white">{value}</h3>
-                {subtext && <p className="text-xs text-gray-500 mt-1">{subtext}</p>}
+                <div className="z-10 min-w-0">
+                <p className="text-gray-400 text-[10px] sm:text-xs font-medium truncate">{title}</p>
+                <h3 className="text-lg sm:text-xl font-bold text-white truncate">{value}</h3>
+                {subtext && <p className="text-[9px] sm:text-[10px] text-gray-500 mt-0.5 truncate">{subtext}</p>}
                 </div>
-                <Icon className={`absolute -right-4 -bottom-4 w-24 h-24 opacity-5 ${colorClass.replace('bg-', 'text-')} transform -rotate-12 group-hover:scale-110 transition-transform`} />
+                <Icon className={`absolute -right-4 -bottom-4 w-16 h-16 sm:w-20 sm:h-20 opacity-5 ${colorClass.replace('bg-', 'text-')} transform -rotate-12 group-hover:scale-110 transition-transform`} />
             </div>
         );
 
-        const TimerView = () => {
-            const [timeLeft, setTimeLeft] = useState(0); // in seconds
-            const [isActive, setIsActive] = useState(false);
-            const [initialTime, setInitialTime] = useState(0); // For progress calc
-            const barRef = useRef(null);
-            const [isDragging, setIsDragging] = useState(false);
-            
-            // Notification State Safety
-            const [notifSupported, setNotifSupported] = useState(false);
-            const [notifPermission, setNotifPermission] = useState('default');
+        const CalendarView = ({ projects, currentDate, onEdit }) => {
+            const [dayProgress, setDayProgress] = useState(100);
 
             useEffect(() => {
-                if (typeof Notification !== 'undefined') {
-                    setNotifSupported(true);
-                    setNotifPermission(Notification.permission);
-                }
+                const updateDayProgress = () => {
+                    const now = new Date();
+                    const totalMinutes = 24 * 60;
+                    const passedMinutes = now.getHours() * 60 + now.getMinutes();
+                    setDayProgress(100 - ((passedMinutes / totalMinutes) * 100));
+                };
+                updateDayProgress();
+                const interval = setInterval(updateDayProgress, 60000); 
+                return () => clearInterval(interval);
             }, []);
 
-            const requestNotif = () => {
-                if (typeof Notification !== 'undefined') {
-                    Notification.requestPermission().then(perm => {
-                        setNotifPermission(perm);
-                    });
-                }
-            };
-
-            const sendNotif = (msg) => {
-                if (notifSupported && notifPermission === 'granted') {
-                    try {
-                        new Notification("AnimTrack Focus", { body: msg });
-                    } catch (e) { console.error(e); }
-                }
-            };
-
-            useEffect(() => {
-                let interval = null;
-                if (isActive && timeLeft > 0) {
-                    interval = setInterval(() => {
-                        setTimeLeft(prev => {
-                            const newVal = prev - 1;
-                            
-                            // Notification Logic
-                            if (newVal === 300) { // 5 minutes
-                                sendNotif("5 Minutes Left! Finish strong.");
-                            }
-                            if (newVal === 0) {
-                                setIsActive(false);
-                                sendNotif("Time's Up!");
-                                try {
-                                    const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-                                    audio.play().catch(e=>{});
-                                } catch(e){}
-                            }
-                            return newVal;
-                        });
-                    }, 1000);
-                } else if (timeLeft <= 0) {
-                    setIsActive(false);
-                    setTimeLeft(0);
-                }
-                return () => clearInterval(interval);
-            }, [isActive, notifSupported, notifPermission]);
-
-            const formatTime = (seconds) => {
-                const h = Math.floor(seconds / 3600);
-                const m = Math.floor((seconds % 3600) / 60);
-                const s = seconds % 60;
-                if (h > 0) return `${h}:${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-                return `${m}:${s < 10 ? '0' : ''}${s}`;
-            };
-
-            const handleDragStart = (e, minutes) => {
-                e.dataTransfer.setData("minutes", minutes);
-            };
-
-            const handleDrop = (e) => {
-                e.preventDefault();
-                const minutes = parseInt(e.dataTransfer.getData("minutes"));
-                if (minutes) addTime(minutes);
-            };
-
-            const addTime = (minutes) => {
-                const addSeconds = minutes * 60;
-                if(timeLeft === 0) setInitialTime(addSeconds); 
-                else setInitialTime(prev => prev + addSeconds);
-                setTimeLeft(prev => prev + addSeconds);
-            };
-
-            const handleDragOver = (e) => e.preventDefault();
-
-            // --- Bar Interaction ---
-            const updateTimeFromInteraction = (clientX) => {
-                if (!barRef.current || initialTime <= 0) return;
-                const rect = barRef.current.getBoundingClientRect();
-                const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-                const percentage = x / rect.width;
-                const newTime = Math.round(initialTime * percentage);
-                setTimeLeft(newTime);
-            };
-
-            const handleMouseDown = (e) => { setIsDragging(true); updateTimeFromInteraction(e.clientX); };
-            const handleMouseMove = (e) => { if (isDragging) updateTimeFromInteraction(e.clientX); };
-            const handleMouseUp = () => { setIsDragging(false); };
-            
-            // Safe Touch Handlers
-            const handleTouchStart = (e) => { 
-                if (e.touches && e.touches[0]) {
-                    setIsDragging(true); 
-                    updateTimeFromInteraction(e.touches[0].clientX); 
-                }
-            };
-            const handleTouchMove = (e) => { 
-                if(isDragging && e.touches && e.touches[0]) {
-                    updateTimeFromInteraction(e.touches[0].clientX); 
-                }
-            };
-
-            useEffect(() => {
-                if (isDragging) {
-                    window.addEventListener('mousemove', handleMouseMove);
-                    window.addEventListener('mouseup', handleMouseUp);
-                    window.addEventListener('touchmove', handleTouchMove, { passive: false });
-                    window.addEventListener('touchend', handleMouseUp);
-                } else {
-                    window.removeEventListener('mousemove', handleMouseMove);
-                    window.removeEventListener('mouseup', handleMouseUp);
-                    window.removeEventListener('touchmove', handleTouchMove);
-                    window.removeEventListener('touchend', handleMouseUp);
-                }
-                return () => {
-                    window.removeEventListener('mousemove', handleMouseMove);
-                    window.removeEventListener('mouseup', handleMouseUp);
-                    window.removeEventListener('touchmove', handleTouchMove);
-                    window.removeEventListener('touchend', handleMouseUp);
-                };
-            }, [isDragging]);
-
-
-            // Visual Logic
-            const progress = initialTime > 0 ? (timeLeft / initialTime) * 100 : 0;
-            let statusColor = "text-blue-400 border-blue-500 shadow-blue-500/20";
-            let barColor = "bg-blue-500";
-            let pulseClass = "";
-
-            if (timeLeft > 0 && timeLeft < 300) { 
-                statusColor = "text-red-500 border-red-600 shadow-red-500/40";
-                barColor = "bg-red-600";
-                pulseClass = "animate-pulse-red";
-            } else if (timeLeft > 0 && timeLeft < 900) {
-                statusColor = "text-orange-400 border-orange-500 shadow-orange-500/30";
-                barColor = "bg-orange-500";
-            }
-
-            const presets = [
-                { label: "15m", val: 15, color: "bg-blue-600" },
-                { label: "30m", val: 30, color: "bg-indigo-600" },
-                { label: "45m", val: 45, color: "bg-purple-600" },
-                { label: "1h", val: 60, color: "bg-emerald-600" },
-                { label: "2h", val: 120, color: "bg-cyan-600" },
-            ];
-
-            return (
-                <div className="flex flex-col md:flex-row h-full gap-6 p-4 w-full">
-                    {/* Sidebar Presets */}
-                    <div className="w-full md:w-24 flex flex-row md:flex-col gap-3 shrink-0 overflow-x-auto md:overflow-visible pb-2 md:pb-0">
-                        <div className="hidden md:block text-xs text-gray-500 font-bold uppercase text-center mb-2">Cells</div>
-                        {presets.map(p => (
-                            <div
-                                key={p.label}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, p.val)}
-                                onClick={() => addTime(p.val)}
-                                className={`h-12 md:h-16 min-w-[60px] md:min-w-full rounded-xl flex items-center justify-center font-bold text-white shadow-lg cursor-pointer active:scale-95 transition-transform ${p.color} border border-white/10`}
-                            >
-                                {p.label}
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Main Timer Area */}
-                    <div className="flex-1 flex flex-col items-center justify-center bg-gray-900/50 rounded-3xl border border-gray-800 relative overflow-hidden min-h-0"
-                         onDrop={handleDrop}
-                         onDragOver={handleDragOver}
-                    >
-                        {isActive && <div className={`absolute inset-0 bg-gradient-to-t from-transparent via-transparent to-${barColor.replace('bg-','')} opacity-5 pointer-events-none`}></div>}
-
-                        <div className={`relative z-10 w-64 h-64 md:w-80 md:h-80 rounded-full border-8 flex items-center justify-center bg-gray-950 transition-all duration-500 ${statusColor} ${pulseClass}`}>
-                            <div className="text-center">
-                                <div className="text-5xl md:text-6xl font-mono font-bold tracking-tighter text-white mb-2">
-                                    {formatTime(timeLeft)}
-                                </div>
-                                <div className={`text-xs md:text-sm uppercase font-bold tracking-widest ${statusColor.split(' ')[0]}`}>
-                                    {timeLeft === 0 ? "IDLE" : isActive ? "FOCUSING" : "PAUSED"}
-                                </div>
-                            </div>
-                            
-                            <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 100 100">
-                                <circle cx="50" cy="50" r="42" fill="none" stroke="#1f2937" strokeWidth="4" />
-                                {initialTime > 0 && (
-                                    <circle 
-                                        cx="50" cy="50" r="42" fill="none" 
-                                        stroke="currentColor" 
-                                        strokeWidth="4" 
-                                        strokeDasharray="264" 
-                                        strokeDashoffset={264 - (264 * progress) / 100} 
-                                        className={`transition-all duration-1000 ${statusColor.split(' ')[0]}`}
-                                    />
-                                )}
-                            </svg>
-                        </div>
-
-                        {/* Battery Bar Visual (Interactable) */}
-                        <div 
-                            ref={barRef}
-                            className="w-full max-w-sm h-8 bg-gray-800 rounded-full mt-8 md:mt-10 overflow-hidden border border-gray-700 relative cursor-ew-resize group touch-none"
-                            onMouseDown={handleMouseDown}
-                            onTouchStart={handleTouchStart}
-                            title="Drag to adjust time"
-                        >
-                            <div 
-                                className={`h-full transition-all duration-100 ease-linear ${barColor}`} 
-                                style={{ width: `${progress}%` }}
-                            >
-                                <div className="absolute inset-0 opacity-30 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAIklEQVQIW2NkQAKrVq36zwjjgzhhZWGMYAEYB8RmROaABADeOQ8CXl/xfgAAAABJRU5ErkJggg==')]"></div>
-                            </div>
-                            <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white/50 font-bold pointer-events-none uppercase tracking-widest">
-                                Slide to Adjust
-                            </div>
-                        </div>
-
-                        {/* Controls */}
-                        <div className="flex gap-4 mt-8">
-                            <button 
-                                onClick={() => setIsActive(!isActive)}
-                                className={`p-4 rounded-full ${isActive ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-blue-600 hover:bg-blue-500'} text-white shadow-lg transition-transform hover:scale-110 active:scale-95`}
-                            >
-                                {isActive ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1" />}
-                            </button>
-                            <button 
-                                onClick={() => { setIsActive(false); setTimeLeft(0); setInitialTime(0); }}
-                                className="p-4 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 shadow-lg transition-transform hover:scale-110 active:scale-95"
-                            >
-                                <RotateCcw />
-                            </button>
-                        </div>
-                        
-                        {timeLeft === 0 && (
-                            <div className="absolute bottom-4 md:bottom-8 text-gray-500 text-xs animate-bounce">
-                                Tap a Cell or Drag to Start
-                            </div>
-                        )}
-                        
-                        {/* Notification Status */}
-                        {notifSupported && (
-                            notifPermission === 'granted' ? 
-                            <div className="absolute top-4 right-4 text-[10px] text-green-500 flex items-center"><Bell size={12} className="mr-1"/> Alerts On</div> :
-                            <button onClick={requestNotif} className="absolute top-4 right-4 text-[10px] text-gray-500 flex items-center hover:text-white bg-gray-800 px-2 py-1 rounded border border-gray-700"><Bell size={12} className="mr-1"/> Enable Alerts</button>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        const CalendarView = ({ projects, currentDate, onEdit }) => {
-            // Generate full month grid weeks
             const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
             const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
             
-            // Adjust to start on Sunday
             const startDate = new Date(startOfMonth);
             startDate.setDate(startDate.getDate() - startDate.getDay());
             
-            // End on Saturday
             const endDate = new Date(endOfMonth);
             if (endDate.getDay() !== 6) {
                 endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
@@ -377,7 +117,6 @@
             let currentWeek = [];
             let dayIter = new Date(startDate);
 
-            // Generate weeks array
             while (dayIter <= endDate) {
                 currentWeek.push(new Date(dayIter));
                 if (currentWeek.length === 7) {
@@ -387,46 +126,37 @@
                 dayIter.setDate(dayIter.getDate() + 1);
             }
 
-            // Function to process a single week
             const renderWeek = (weekDays) => {
                 const weekStart = weekDays[0];
                 const weekEnd = weekDays[6];
                 weekEnd.setHours(23, 59, 59, 999); 
 
-                // 1. Find projects active in this week
                 const weekProjects = projects.filter(p => {
                     const pStart = p.startDate ? new Date(p.startDate) : (p.createdAt ? new Date(p.createdAt) : new Date());
                     const pEnd = p.deadline ? new Date(p.deadline) : new Date();
                     pStart.setHours(0,0,0,0);
                     pEnd.setHours(23,59,59,999);
-                    // Check intersection
                     return pStart <= weekEnd && pEnd >= weekStart;
                 });
 
-                // 2. Map projects to visual slots (lanes)
-                // Sort by start date first, then length (greedy packing)
                 weekProjects.sort((a,b) => {
                      const startA = a.startDate ? new Date(a.startDate) : new Date(a.createdAt);
                      const startB = b.startDate ? new Date(b.startDate) : new Date(b.createdAt);
                      return startA - startB;
                 });
 
-                // Process layout
                 const processedItems = weekProjects.map(p => {
                     const pStart = p.startDate ? new Date(p.startDate) : new Date(p.createdAt);
                     const pEnd = p.deadline ? new Date(p.deadline) : new Date();
                     pStart.setHours(0,0,0,0);
                     pEnd.setHours(23,59,59,999);
 
-                    // Calculate start col (0-6) and end col (0-6) within this week
                     let startCol = 0;
                     let endCol = 6;
                     
-                    // If project starts inside this week, adjust startCol
                     if (pStart > weekStart) {
                         startCol = Math.floor((pStart - weekStart) / (1000 * 60 * 60 * 24));
                     }
-                    // If project ends inside this week, adjust endCol
                     if (pEnd < weekEnd) {
                         endCol = Math.floor((pEnd - weekStart) / (1000 * 60 * 60 * 24));
                     }
@@ -435,17 +165,14 @@
                     return { ...p, startCol, colSpan };
                 });
 
-                // 3. Assign vertical lanes (simple algorithm to avoid overlap)
                 const itemsWithLane = [];
-                const grid = []; // grid[lane][day] = true/false
+                const grid = []; 
 
                 processedItems.forEach(item => {
                     let lane = 0;
                     let placed = false;
                     while (!placed) {
                         if (!grid[lane]) grid[lane] = Array(7).fill(false);
-                        
-                        // Check if lane is clear for item duration
                         let isClear = true;
                         for (let i = item.startCol; i < item.startCol + item.colSpan; i++) {
                             if (grid[lane][i]) {
@@ -453,9 +180,7 @@
                                 break;
                             }
                         }
-
                         if (isClear) {
-                            // Place it
                             for (let i = item.startCol; i < item.startCol + item.colSpan; i++) {
                                 grid[lane][i] = true;
                             }
@@ -476,61 +201,66 @@
                 switch(status) {
                     case 'paid': return 'bg-emerald-500 border-emerald-600 text-emerald-100';
                     case 'completed': return 'bg-yellow-500 border-yellow-600 text-yellow-900';
-                    case 'active': case 'layout': case 'blocking': case 'splining': return 'bg-blue-500 border-blue-600 text-white';
-                    case 'polishing': return 'bg-purple-500 border-purple-600 text-white';
-                    case 'inquiry': return 'bg-gray-600 border-gray-700 text-gray-200';
-                    default: return 'bg-blue-500 border-blue-600 text-white';
+                    default: return 'bg-blue-500 border-blue-500 text-white';
                 }
             };
 
             return (
                 <div className="bg-gray-900 border border-gray-800 rounded-xl shadow-xl overflow-hidden flex flex-col h-full">
-                    {/* Calendar Header */}
-                    <div className="grid grid-cols-7 border-b border-gray-800 bg-gray-950/50">
-                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                            <div key={d} className="text-gray-500 text-[10px] uppercase font-bold text-center py-2">{d}</div>
-                        ))}
-                    </div>
-                    
-                    {/* Calendar Body */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-900">
-                        {renderedWeeks.map((weekData, wIdx) => (
-                            <div key={wIdx} className="relative border-b border-gray-800 min-h-[100px]">
-                                {/* Background Grid */}
-                                <div className="grid grid-cols-7 absolute inset-0 z-0">
-                                    {weekData.weekDays.map((day, dIdx) => {
-                                        const isToday = day.toDateString() === new Date().toDateString();
-                                        const isCurrent = day.getMonth() === currentDate.getMonth();
-                                        return (
-                                            <div key={dIdx} className={`border-r border-gray-800/50 p-1 ${isToday ? 'bg-blue-900/10' : ''}`}>
-                                                <span className={`text-xs font-bold ${isToday ? 'text-blue-400' : isCurrent ? 'text-gray-400' : 'text-gray-700'}`}>
-                                                    {day.getDate()}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Task Bars */}
-                                <div className="relative z-10 mt-6 pb-2 w-full" style={{ height: `${Math.max(weekData.gridHeight * 26, 20)}px` }}> 
-                                    {weekData.items.map(item => (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => onEdit(item)}
-                                            className={`absolute h-5 rounded-md text-[10px] px-2 text-left truncate shadow-sm border-l-2 hover:brightness-110 transition-all ${getStatusColor(item.status)}`}
-                                            style={{
-                                                left: `${(item.startCol / 7) * 100 + 0.5}%`,
-                                                width: `${(item.colSpan / 7) * 100 - 1}%`,
-                                                top: `${item.lane * 26}px`
-                                            }}
-                                            title={`${item.name} (${item.client}) - ${item.status}`}
-                                        >
-                                            {item.name}
-                                        </button>
-                                    ))}
-                                </div>
+                    {/* Overflow-x-auto wrapper for very narrow split views */}
+                    <div className="flex-1 overflow-auto custom-scrollbar bg-gray-900">
+                        <div className="min-w-[320px]">
+                            <div className="grid grid-cols-7 border-b border-gray-800 bg-gray-950/50 sticky top-0 z-20">
+                                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                                    <div key={d} className="text-gray-500 text-[10px] uppercase font-bold text-center py-2">{d}</div>
+                                ))}
                             </div>
-                        ))}
+                            
+                            {renderedWeeks.map((weekData, wIdx) => (
+                                <div key={wIdx} className="relative border-b border-gray-800 min-h-[80px] md:min-h-[100px]">
+                                    <div className="grid grid-cols-7 absolute inset-0 z-0">
+                                        {weekData.weekDays.map((day, dIdx) => {
+                                            const now = new Date();
+                                            const isToday = day.toDateString() === now.toDateString();
+                                            const isPast = day < new Date(now.setHours(0,0,0,0));
+                                            
+                                            return (
+                                                <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 overflow-hidden ${isPast ? 'bg-gray-950/80' : ''} ${isToday ? 'bg-gray-800 shadow-inner' : ''}`}>
+                                                    {isToday && (
+                                                        <div 
+                                                            className="absolute bottom-0 left-0 right-0 bg-blue-500/10 z-0 transition-all duration-1000"
+                                                            style={{ height: `${dayProgress}%` }} 
+                                                        />
+                                                    )}
+                                                    
+                                                    <div className={`relative z-10 text-[10px] md:text-xs font-bold flex justify-center items-center w-6 h-6 rounded-full ${isToday ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/50 scale-110' : isPast ? 'text-gray-600' : 'text-gray-400'}`}>
+                                                        {day.getDate()}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className="relative z-10 mt-8 pb-2 w-full" style={{ height: `${Math.max(weekData.gridHeight * 26, 20)}px` }}> 
+                                        {weekData.items.map(item => (
+                                            <button
+                                                key={item.id}
+                                                onClick={() => onEdit(item)}
+                                                className={`absolute h-5 rounded text-[9px] md:text-[10px] px-1 md:px-2 text-left truncate shadow-sm border-l-2 hover:brightness-110 transition-all ${getStatusColor(item.status)}`}
+                                                style={{
+                                                    left: `${(item.startCol / 7) * 100 + 0.5}%`,
+                                                    width: `${(item.colSpan / 7) * 100 - 1}%`,
+                                                    top: `${item.lane * 26}px`
+                                                }}
+                                                title={`${item.name}`}
+                                            >
+                                                {item.name}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             );
@@ -539,74 +269,92 @@
         const ProjectCard = ({ project, onEdit, onViewDetails, moveStatus }) => {
             const isShot = project.payType === 'shot' || project.payType === 'retainer_work';
             const isRetainer = project.payType === 'retainer_work';
-            const isSalary = project.payType === 'retainer_salary';
             const val = isShot ? (project.shotRate * project.shotCount) : project.fixedPrice;
             
             const today = new Date();
             const deadline = project.deadline ? new Date(project.deadline) : null;
-            const start = project.startDate ? new Date(project.startDate) : (project.createdAt ? new Date(project.createdAt) : new Date());
             
-            let daysLeft = null, isOverdue = false, border = 'border-gray-600', timeProg = 0;
+            let daysLeft = null, isOverdue = false, border = 'border-gray-700';
             if(deadline && project.status!=='paid' && project.status!=='completed'){
                 const diff = deadline - today;
                 daysLeft = Math.ceil(diff/(1000*60*60*24));
-                if(daysLeft < 0) { isOverdue=true; border='border-red-500 shadow-red-900/20 shadow-lg'; timeProg=100; }
-                else {
-                    if(daysLeft<=3) border='border-orange-500 shadow-orange-900/20 shadow-lg';
-                    const total = deadline - start;
-                    if(total>0) timeProg = Math.min(100, Math.max(0, ((today-start)/total)*100));
-                }
+                if(daysLeft < 0) isOverdue=true;
             }
 
-            let Icon = Box;
-            if(isSalary) Icon = Calendar;
-            if(isShot) Icon = Film;
-            if(isRetainer) Icon = ShieldCheck;
+            // Stage Visuals (Color & Badge)
+            let stageColor = 'text-gray-400 border-gray-600';
+            let StageIcon = Box;
+            
+            if (['inquiry','layout','blocking','splining','polishing'].includes(project.status)) {
+                switch(project.status) {
+                    case 'layout': 
+                        stageColor = 'text-blue-400 border-blue-500/50 bg-blue-900/10'; 
+                        StageIcon = Layers;
+                        break;
+                    case 'blocking': 
+                        stageColor = 'text-indigo-400 border-indigo-500/50 bg-indigo-900/10'; 
+                        StageIcon = Box;
+                        break;
+                    case 'splining': 
+                        stageColor = 'text-purple-400 border-purple-500/50 bg-purple-900/10'; 
+                        StageIcon = PenTool;
+                        break;
+                    case 'polishing': 
+                        stageColor = 'text-pink-400 border-pink-500/50 bg-pink-900/10'; 
+                        StageIcon = Sparkles;
+                        break;
+                    default: // inquiry
+                        stageColor = 'text-gray-400 border-gray-600 bg-gray-800'; 
+                }
+            } else if (project.status === 'completed') {
+                stageColor = 'text-yellow-400 border-yellow-500/50 bg-yellow-900/10';
+            } else if (project.status === 'paid') {
+                stageColor = 'text-emerald-400 border-emerald-500/50 bg-emerald-900/10';
+            }
 
             return (
-                <div onClick={() => onViewDetails(project)} className={`bg-gray-800 rounded-xl p-4 mb-3 border-l-4 ${border} shadow-md hover:shadow-xl hover:bg-gray-800/80 cursor-pointer transition-all group relative`}>
+                <div onClick={() => onViewDetails(project)} className={`bg-gray-800 rounded-xl p-3 mb-2 shadow-md active:scale-95 transition-transform group relative border-l-4 ${isOverdue ? 'border-red-500' : 'border-gray-700'}`}>
                     <div className="flex justify-between items-start mb-2">
                         <div className="flex-1 pr-2 overflow-hidden">
-                            <div className="flex items-center text-xs text-blue-400 font-semibold mb-1 truncate">
-                                <Briefcase size={10} className="mr-1" /> {project.client} {project.projectName && <span className="mx-1 text-gray-600">/</span>} {project.projectName}
+                            <div className="flex items-center text-[10px] text-gray-500 font-semibold mb-0.5 truncate uppercase tracking-wider">
+                                {project.client}
                             </div>
-                            <h4 className="font-bold text-base text-white truncate">{project.name}</h4>
+                            <h4 className="font-bold text-sm text-white truncate">{project.name}</h4>
                         </div>
                         <button onClick={(e) => { e.stopPropagation(); onEdit(project); }} className="text-gray-500 hover:text-white p-1 hover:bg-gray-700 rounded"><Edit2 size={14} /></button>
                     </div>
-                    <div className={`flex items-center justify-between p-2 rounded-lg mb-3 border ${isRetainer ? 'bg-purple-900/20 border-purple-500/30 border-dashed' : isSalary ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-gray-900/60 border-gray-700/50'}`}>
-                        <div className="flex flex-col">
-                            <span className="text-[10px] text-gray-500 uppercase">Type</span>
-                            <span className={`text-xs font-medium capitalize flex items-center ${isRetainer?'text-purple-300':isSalary?'text-emerald-300':'text-gray-300'}`}><Icon size={10} className="mr-1"/>{isSalary?'Salary':isRetainer?'Covered':project.payType}</span>
+
+                    <div className="flex items-center justify-between mb-2">
+                        <div className={`flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${stageColor}`}>
+                            <StageIcon size={10} className="mr-1.5" />
+                            {project.status === 'completed' ? 'Done' : project.status}
                         </div>
-                        <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-gray-500 uppercase">Value</span>
-                            <span className={`text-sm font-bold ${isRetainer?'text-purple-400':'text-emerald-400'}`}>{isRetainer && val>0 ? `(Est. $${val.toLocaleString()})` : `$${val.toLocaleString()}`}</span>
-                        </div>
+                        <span className={`text-xs font-mono font-bold ${isRetainer?'text-purple-400':'text-emerald-400'}`}>
+                            {isRetainer && val > 0 ? '(Cvrd)' : `$${val.toLocaleString()}`}
+                        </span>
                     </div>
-                    {isShot && <div className="flex justify-between text-xs text-gray-500 mb-3 px-1"><span>{project.shotCount} Shots</span><span>@ ${project.shotRate}/shot</span></div>}
                     
-                    <div className="space-y-2 mb-3">
-                        <div>
-                            <div className="flex justify-between text-[10px] text-gray-400 mb-0.5"><span>Progress</span><span>{project.progress||0}%</span></div>
-                            <div className="w-full bg-gray-700 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full" style={{width: `${project.progress||0}%`}}></div></div>
+                    <div className="space-y-1">
+                        <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden">
+                            <div className="bg-blue-500 h-1 rounded-full" style={{width: `${project.progress||0}%`}}></div>
                         </div>
-                        {deadline && project.status!=='paid' && project.status!=='completed' && (
-                            <div>
-                                <div className="flex justify-between text-[10px] text-gray-400 mb-0.5"><span>Deadline</span><span className={isOverdue?"text-red-400 font-bold":""}>{isOverdue?"OVERDUE":`${daysLeft} days`}</span></div>
-                                <div className="w-full bg-gray-700 rounded-full h-1.5"><div className={`h-1.5 rounded-full ${timeProg>90?'bg-red-500':timeProg>75?'bg-orange-500':'bg-gray-500'}`} style={{width: `${timeProg}%`}}></div></div>
+                        {deadline && (
+                            <div className="flex justify-between items-center pt-1">
+                                <span className={`text-[10px] flex items-center ${isOverdue ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
+                                    <Clock size={10} className="mr-1"/> 
+                                    {isOverdue ? 'Overdue' : deadline.toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                                </span>
                             </div>
                         )}
                     </div>
 
-                    <div className="flex justify-between mt-2 pt-2 border-t border-gray-700/50">
-                        {project.status !== 'paid' ? (
-                            <button onClick={(e) => { e.stopPropagation(); moveStatus(project, 'forward'); }} className="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center">Next <ArrowRight size={10} className="ml-1"/></button>
-                        ) : <span className="text-[10px] text-emerald-500 font-bold border border-emerald-500/30 px-2 py-1 rounded bg-emerald-500/10">Paid</span>}
-                        <div className="flex items-center space-x-2">
-                            {isOverdue ? <span className="text-xs text-red-400 font-bold flex items-center"><AlertCircle size={12} className="mr-1"/> Overdue</span> : <span className="text-xs text-gray-500 flex items-center"><Clock size={12} className="mr-1"/> {deadline ? deadline.toLocaleDateString(undefined, {month:'short', day:'numeric'}) : 'No Date'}</span>}
+                    {project.status !== 'paid' && (
+                        <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-end">
+                            <button onClick={(e) => { e.stopPropagation(); moveStatus(project, 'forward'); }} className="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center shadow-sm border border-gray-600">
+                                Next Stage <ArrowRight size={10} className="ml-1"/>
+                            </button>
                         </div>
-                    </div>
+                    )}
                 </div>
             );
         };
@@ -630,17 +378,17 @@
                 <div className="fixed inset-0 z-50 flex justify-end">
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
                     <div className="relative w-full max-w-2xl bg-gray-900 h-full border-l border-gray-800 shadow-2xl flex flex-col">
-                        <div className="p-6 border-b border-gray-800 bg-gray-900 z-10 flex justify-between items-start">
+                        <div className="p-4 md:p-6 border-b border-gray-800 bg-gray-900 z-10 flex justify-between items-start">
                             <div>
-                                <h2 className="text-2xl font-bold text-white">{project.name}</h2>
-                                <p className="text-gray-400">{project.client} / {project.projectName}</p>
+                                <h2 className="text-xl md:text-2xl font-bold text-white">{project.name}</h2>
+                                <p className="text-gray-400 text-sm">{project.client} / {project.projectName}</p>
                             </div>
                             <div className="flex space-x-2">
-                                <button onClick={onEdit} className="p-2 hover:bg-gray-800 rounded text-gray-400"><Edit2/></button>
-                                <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded text-gray-400"><X/></button>
+                                <button onClick={onEdit} className="p-2 hover:bg-gray-800 rounded text-gray-400"><Edit2 size={18}/></button>
+                                <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded text-gray-400"><X size={18}/></button>
                             </div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 md:p-6 custom-scrollbar">
                             <div className="mb-6 bg-gray-800 p-4 rounded-xl border border-gray-700">
                                 <div className="flex justify-between mb-2 text-sm font-bold text-gray-300"><span>Progress</span><span className="text-blue-400">{progress}%</span></div>
                                 <input type="range" min="0" max="100" value={progress} onChange={changeProg} className="w-full h-2 bg-gray-700 rounded-lg accent-blue-500" />
@@ -650,7 +398,7 @@
                                     <span>Notes</span>
                                     {isSaving && <span className="text-blue-400 animate-pulse text-xs">Saving...</span>}
                                 </div>
-                                <textarea className="w-full h-full bg-gray-950 border border-gray-800 rounded-xl p-6 text-gray-300 outline-none resize-none font-mono text-sm shadow-inner" value={notes} onChange={changeNotes} placeholder="Type notes..." />
+                                <textarea className="w-full h-full bg-gray-950 border border-gray-800 rounded-xl p-4 md:p-6 text-gray-300 outline-none resize-none font-mono text-sm shadow-inner" value={notes} onChange={changeNotes} placeholder="Type notes..." />
                             </div>
                         </div>
                     </div>
@@ -713,10 +461,10 @@
                             <button onClick={()=>setActiveTab('data')} className={`flex-1 py-3 text-sm font-bold ${activeTab==='data'?'bg-gray-800 text-white border-b-2 border-emerald-500':'text-gray-400'}`}>Data</button>
                             <button onClick={onClose} className="px-4 text-gray-400 hover:text-white"><X/></button>
                         </div>
-                        <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                        <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar">
                             {activeTab==='clients' && (
-                                <div className="flex h-full gap-6">
-                                    <div className="w-1/3 border-r border-gray-800 pr-4 space-y-2">
+                                <div className="flex flex-col sm:flex-row h-full gap-6">
+                                    <div className="w-full sm:w-1/3 sm:border-r border-gray-800 sm:pr-4 space-y-2">
                                         {clients.map((c,i)=>(
                                             <div key={i} className="bg-gray-800 p-2 rounded flex justify-between items-center">
                                                 <div><p className="text-sm">{c.name}</p><p className="text-[10px] text-gray-500 uppercase">{c.type}</p></div>
@@ -724,7 +472,7 @@
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="w-2/3 space-y-4">
+                                    <div className="w-full sm:w-2/3 space-y-4">
                                         <input className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white" placeholder="Client Name" value={clientForm.name} onChange={e=>setClientForm({...clientForm, name:e.target.value})} />
                                         <div className="flex gap-2">
                                             <button onClick={()=>setClientForm({...clientForm, type:'standard'})} className={`flex-1 py-2 text-xs border rounded ${clientForm.type==='standard'?'bg-blue-600 border-blue-500':'border-gray-700'}`}>Standard</button>
@@ -809,7 +557,7 @@
 
             return (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-gray-900 border border-gray-700 w-full max-w-lg rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
+                    <div className="bg-gray-900 border border-gray-700 w-full max-w-lg rounded-2xl p-4 sm:p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold text-white">{initialData?'Edit':'New'} Task</h2>
                             <button onClick={onClose}><X/></button>
@@ -875,9 +623,19 @@
                                     <input type="date" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.status==='paid'?form.paymentDate:form.deadline} onChange={e=>form.status==='paid'?setForm({...form, paymentDate:e.target.value}):setForm({...form, deadline:e.target.value})} />
                                 </div>
                                 <div className="col-span-1">
-                                    <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">Status</label>
+                                    <label className="text-[10px] text-gray-500 uppercase font-bold mb-1 block">Stage</label>
                                     <select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
-                                        {['inquiry','layout','blocking','splining','polishing','completed','paid'].map(s=><option key={s} value={s}>{s}</option>)}
+                                        <optgroup label="Animation Work">
+                                            <option value="inquiry">Inquiry</option>
+                                            <option value="layout">Layout</option>
+                                            <option value="blocking">Blocking</option>
+                                            <option value="splining">Splining</option>
+                                            <option value="polishing">Polish</option>
+                                        </optgroup>
+                                        <optgroup label="Finished">
+                                            <option value="completed">Done (Pending Pay)</option>
+                                            <option value="paid">Paid</option>
+                                        </optgroup>
                                     </select>
                                 </div>
                             </div>
@@ -902,13 +660,14 @@
             const [loading, setLoading] = useState(true);
             
             // UI State
-            const [viewMode, setViewMode] = useState('board'); // 'board' | 'calendar' | 'timer'
+            const [viewMode, setViewMode] = useState('board'); 
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isListManagerOpen, setIsListManagerOpen] = useState(false);
             const [editingProject, setEditingProject] = useState(null);
             const [viewingProject, setViewingProject] = useState(null);
             const [currentDate, setCurrentDate] = useState(new Date());
             const [filterByMonth, setFilterByMonth] = useState(false);
+            const [showStats, setShowStats] = useState(false); 
 
             // Load Data on Mount
             useEffect(() => {
@@ -935,17 +694,15 @@
                 let updatedProjects;
 
                 if (editingProject) {
-                    // Update existing
                     updatedProjects = data.projects.map(p => 
                         p.id === editingProject.id 
                         ? { ...p, ...formProject, updatedAt: now } 
                         : p
                     );
                 } else {
-                    // Create new
                     const newProject = {
                         ...formProject,
-                        id: crypto.randomUUID(), // Generate local ID
+                        id: crypto.randomUUID(), 
                         createdAt: now,
                         updatedAt: now
                     };
@@ -967,36 +724,30 @@
                     ...prev,
                     projects: prev.projects.map(p => p.id === projectId ? { ...p, ...updates } : p)
                 }));
-                
-                // Also update viewing project in real-time
                 if (viewingProject?.id === projectId) {
                     setViewingProject(prev => ({ ...prev, ...updates }));
                 }
             };
 
             const handleMoveStatus = (project, direction) => {
-                const statuses = ['inquiry', 'layout', 'blocking', 'splining', 'polishing', 'completed', 'paid'];
-                const currentIndex = statuses.indexOf(project.status);
+                // Simplified Workflow Order
+                const flow = ['inquiry', 'layout', 'blocking', 'splining', 'polishing', 'completed', 'paid'];
+                const currentIndex = flow.indexOf(project.status);
                 let newIndex = currentIndex;
-                if (direction === 'forward' && currentIndex < statuses.length - 1) newIndex++;
+                if (direction === 'forward' && currentIndex < flow.length - 1) newIndex++;
                 if (direction === 'back' && currentIndex > 0) newIndex--;
 
                 if (newIndex !== currentIndex) {
-                    const newStatus = statuses[newIndex];
+                    const newStatus = flow[newIndex];
                     const todayStr = new Date().toISOString().split('T')[0];
                     let updates = { status: newStatus };
                     if (newStatus === 'paid' && !project.paymentDate) updates.paymentDate = todayStr;
 
-                    // Batch Update Logic for Retainers
                     const isRetainer = project.payType.includes('retainer') || project.payType === 'monthly';
                     
                     if (newStatus === 'paid' && isRetainer) {
-                        // Move ALL completed items for this client to paid
                         const updatedProjects = data.projects.map(p => {
-                            // Update the target project
                             if (p.id === project.id) return { ...p, ...updates };
-                            
-                            // Update peers
                             if (p.client === project.client && p.status === 'completed') {
                                 return { ...p, status: 'paid', paymentDate: p.paymentDate || todayStr };
                             }
@@ -1004,7 +755,6 @@
                         });
                         setData(prev => ({ ...prev, projects: updatedProjects }));
                     } else {
-                        // Single update
                         const updatedProjects = data.projects.map(p => 
                             p.id === project.id ? { ...p, ...updates } : p
                         );
@@ -1014,12 +764,11 @@
             };
 
             const handleImportData = (importedData) => {
-                // Validate structure simply
                 if (importedData.projects && importedData.clients) {
                     setData({
                         projects: importedData.projects || [],
                         clients: importedData.clients || [],
-                        projectList: importedData.projectList || importedData.settings?.projects || [] // Handle legacy structure
+                        projectList: importedData.projectList || importedData.settings?.projects || [] 
                     });
                     return true;
                 }
@@ -1057,19 +806,16 @@
             }, [data.projects, currentDate]);
 
             // --- Views ---
+            // Simplified 3-Column Board
             const columns = [
-                { id: 'inquiry', label: 'Inquiry', icon: Briefcase, color: 'text-yellow-500' },
-                { id: 'layout', label: 'Layout / Ref', icon: Layers, color: 'text-blue-400' },
-                { id: 'blocking', label: 'Blocking', icon: Box, color: 'text-blue-500' },
-                { id: 'splining', label: 'Splining', icon: MonitorPlay, color: 'text-purple-400' },
-                { id: 'polishing', label: 'Clean / Polish', icon: Film, color: 'text-purple-500' },
-                { id: 'completed', label: 'Pending Pay', icon: CheckCircle, color: 'text-emerald-500' },
+                { id: 'active', label: 'Animation Work', icon: Layers, color: 'text-blue-400' },
+                { id: 'completed', label: 'Done (Pending Pay)', icon: CheckCircle, color: 'text-yellow-500' },
                 { id: 'paid', label: 'Paid', icon: DollarSign, color: 'text-emerald-300' },
             ];
 
             const projectsByStatus = useMemo(() => {
-                const grouped = {};
-                columns.forEach(c => grouped[c.id] = []);
+                const grouped = { active: [], completed: [], paid: [] };
+                
                 let displayProjects = data.projects;
                 if (filterByMonth && viewMode === 'board') {
                     displayProjects = data.projects.filter(p => {
@@ -1077,118 +823,133 @@
                         return isSameMonth(d, currentDate);
                     });
                 }
+
                 displayProjects.forEach(p => {
-                    if (grouped[p.status]) grouped[p.status].push(p);
+                    if (['completed'].includes(p.status)) {
+                        grouped.completed.push(p);
+                    } else if (['paid'].includes(p.status)) {
+                        grouped.paid.push(p);
+                    } else {
+                        // Everything else (inquiry, layout, blocking, splining, polishing) goes to active
+                        grouped.active.push(p);
+                    }
                 });
+
                 Object.keys(grouped).forEach(k => grouped[k].sort((a,b) => {
                     if(!a.deadline) return 1; if(!b.deadline) return -1;
                     return new Date(a.deadline) - new Date(b.deadline);
                 }));
                 return grouped;
-            }, [data.projects, columns, filterByMonth, currentDate, viewMode]);
+            }, [data.projects, filterByMonth, currentDate, viewMode]);
 
             if (loading) return <div className="fixed inset-0 bg-gray-950 flex items-center justify-center text-white">Loading...</div>;
 
             return (
                 <div className="fixed inset-0 bg-gray-950 text-gray-100 font-sans selection:bg-blue-500 selection:text-white flex flex-col overflow-hidden">
-                    {/* Header */}
-                    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 shadow-2xl shrink-0">
-                        <div className="max-w-full mx-auto px-4 h-16 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
-                                    <Box className="text-white w-5 h-5" />
+                    
+                    {/* Compact Header */}
+                    <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-30 shadow-2xl shrink-0 h-14">
+                        <div className="max-w-full mx-auto px-2 sm:px-4 h-full flex items-center justify-between gap-2">
+                            {/* Left: Logo & View Tabs */}
+                            <div className="flex items-center gap-2 sm:gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <div className="w-8 h-8 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
+                                        <Box className="text-white w-5 h-5" />
+                                    </div>
+                                    <h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400 hidden sm:block">AnimTrack</h1>
                                 </div>
-                                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400 hidden sm:block">AnimTrack</h1>
-                                <span className="ml-2 text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700 flex items-center"><WifiOff size={10} className="mr-1"/> Offline</span>
-                            </div>
-                            <div className="flex items-center bg-gray-800 rounded-lg p-1 border border-gray-700 mx-2">
-                                <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronLeft size={18}/></button>
-                                <div className="flex items-center space-x-2 px-3 min-w-[120px] justify-center">
-                                    <Calendar size={14} className="text-blue-400"/>
-                                    <span className="text-sm font-bold text-gray-200">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+                                <div className="flex space-x-1 bg-gray-800 p-1 rounded-lg">
+                                    <button 
+                                        onClick={() => setViewMode('board')}
+                                        className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'board' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <LayoutGrid size={14} />
+                                    </button>
+                                    <button 
+                                        onClick={() => setViewMode('calendar')}
+                                        className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'calendar' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
+                                    >
+                                        <CalendarDays size={14} />
+                                    </button>
                                 </div>
-                                <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronRight size={18}/></button>
                             </div>
+
+                            {/* Right: Actions */}
                             <div className="flex items-center space-x-2">
-                                <button onClick={() => setIsListManagerOpen(true)} className="p-2 text-gray-400 bg-gray-800 border border-gray-700 rounded-lg hover:text-white"><Settings size={18} /></button>
-                                <button onClick={() => { setEditingProject(null); setIsModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center shadow-lg"><Plus size={16} className="mr-2" /> New Task</button>
+                                <button onClick={() => setIsListManagerOpen(true)} className="p-2 text-gray-400 bg-gray-800 border border-gray-700 rounded-lg hover:text-white"><Settings size={16} /></button>
+                                <button onClick={() => { setEditingProject(null); setIsModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center shadow-lg"><Plus size={14} className="mr-1" /> New</button>
                             </div>
                         </div>
                     </header>
 
-                    {/* Main Content */}
-                    <main className="flex-1 overflow-hidden flex flex-col p-4 max-w-full min-h-0">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 shrink-0">
-                            <StatCard title={`Projected (${currentDate.toLocaleString('default', { month: 'short' })})`} value={`$${stats.monthlyProjected.toLocaleString()}`} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
-                            <StatCard title={`Earned (${currentDate.toLocaleString('default', { month: 'short' })})`} value={`$${stats.monthlyEarned.toLocaleString()}`} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
-                            <StatCard title="Pending Pay" value={`$${stats.pendingPayment.toLocaleString()}`} icon={Clock} colorClass="bg-yellow-500 text-yellow-500" />
+                    {/* Sub-Header (Controls) */}
+                    <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/50 shrink-0 gap-2">
+                        {/* Date Nav */}
+                        <div className="flex items-center bg-gray-800 rounded-lg p-0.5 border border-gray-700">
+                            <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronLeft size={16}/></button>
+                            <div className="flex items-center px-2 justify-center min-w-[100px]">
+                                <span className="text-xs font-bold text-gray-200">{currentDate.toLocaleString('default', { month: 'short', year: 'numeric' })}</span>
+                            </div>
+                            <button onClick={() => changeMonth(1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronRight size={16}/></button>
                         </div>
 
-                        <div className="flex items-center justify-between mb-4 border-b border-gray-800 pb-2 shrink-0">
-                            <div className="flex space-x-2 bg-gray-900 p-1 rounded-lg">
-                                <button 
-                                    onClick={() => setViewMode('board')}
-                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode === 'board' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    <LayoutGrid size={14} className="inline mr-1" /> Board
-                                </button>
-                                <button 
-                                    onClick={() => setViewMode('calendar')}
-                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode === 'calendar' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    <CalendarDays size={14} className="inline mr-1" /> Calendar
-                                </button>
-                                <button 
-                                    onClick={() => setViewMode('timer')}
-                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode === 'timer' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}
-                                >
-                                    <Timer size={14} className="inline mr-1" /> Focus Timer
-                                </button>
-                            </div>
-                            
+                        {/* Right: Filter & Stats Toggle */}
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setShowStats(!showStats)} 
+                                className={`text-xs flex items-center px-3 py-1.5 rounded-lg border transition ${showStats ? 'bg-purple-600/20 border-purple-500 text-purple-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}
+                            >
+                                <BarChart2 size={14} className="mr-1" /> Stats
+                            </button>
                             {viewMode === 'board' && (
                                 <button onClick={() => setFilterByMonth(!filterByMonth)} className={`text-xs flex items-center px-3 py-1.5 rounded-lg border transition ${filterByMonth ? 'bg-blue-600/20 border-blue-500 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400'}`}>
-                                    <Filter size={12} className="mr-2" /> {filterByMonth ? `Showing: ${currentDate.toLocaleString('default', { month: 'long' })}` : 'Showing: All Active'}
+                                    <Filter size={14} className="mr-1" /> {filterByMonth ? 'Month' : 'All'}
                                 </button>
                             )}
                         </div>
+                    </div>
 
-                        <div className="flex-1 overflow-hidden relative">
-                            {viewMode === 'board' ? (
-                                <div className="h-full overflow-auto no-scrollbar p-2">
-                                    <div className="flex space-x-4 min-w-max pb-10 items-start">
-                                        {columns.map(col => (
-                                            <div key={col.id} className="w-[280px] shrink-0 flex flex-col">
-                                                <div className="flex items-center mb-3 px-1 py-2 sticky top-0 bg-gray-950 z-20 border-b border-gray-800/50">
-                                                    <col.icon size={16} className={`mr-2 ${col.color}`} />
-                                                    <h3 className="font-semibold text-gray-300 text-sm">{col.label}</h3>
-                                                    <span className="ml-auto bg-gray-800 text-gray-500 text-xs px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
-                                                </div>
-                                                <div className="bg-gray-900/30 rounded-xl p-2 border border-gray-800/50 min-h-[150px]">
-                                                    <div className="space-y-3">
-                                                        {projectsByStatus[col.id]?.map(p => (
-                                                            <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
-                                                        ))}
-                                                    </div>
+                    {/* Stats Panel (Collapsible) */}
+                    {showStats && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-900 border-b border-gray-800 shrink-0">
+                            <StatCard title="Projected" value={`$${stats.monthlyProjected.toLocaleString()}`} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
+                            <StatCard title="Earned" value={`$${stats.monthlyEarned.toLocaleString()}`} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
+                            <StatCard title="Pending" value={`$${stats.pendingPayment.toLocaleString()}`} icon={Clock} colorClass="bg-yellow-500 text-yellow-500" />
+                        </div>
+                    )}
+
+                    {/* Main Content Area */}
+                    <main className="flex-1 overflow-hidden relative">
+                        {viewMode === 'board' ? (
+                            <div className="h-full overflow-auto no-scrollbar p-2">
+                                <div className="flex space-x-3 min-w-max pb-10 items-start h-full">
+                                    {columns.map(col => (
+                                        <div key={col.id} className="w-[300px] shrink-0 flex flex-col h-full">
+                                            <div className="flex items-center mb-2 px-1 py-1 sticky top-0 bg-gray-950 z-20 border-b border-gray-800/50">
+                                                <col.icon size={14} className={`mr-2 ${col.color}`} />
+                                                <h3 className="font-semibold text-gray-300 text-xs">{col.label}</h3>
+                                                <span className="ml-auto bg-gray-800 text-gray-500 text-[10px] px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
+                                            </div>
+                                            <div className="bg-gray-900/30 rounded-xl p-2 border border-gray-800/50 flex-1 min-h-0 overflow-y-auto custom-scrollbar touch-pan-y">
+                                                <div className="space-y-2 pb-4">
+                                                    {projectsByStatus[col.id]?.map(p => (
+                                                        <ProjectCard key={p.id} project={p} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} />
+                                                    ))}
                                                 </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                    ))}
                                 </div>
-                            ) : viewMode === 'calendar' ? (
-                                <div className="h-full">
-                                    <CalendarView 
-                                        projects={data.projects} 
-                                        currentDate={currentDate} 
-                                        onEdit={(p) => {setEditingProject(p); setIsModalOpen(true);}} 
-                                    />
-                                </div>
-                            ) : (
-                                <div className="absolute inset-0">
-                                    <TimerView />
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        ) : (
+                            <div className="h-full p-2">
+                                <CalendarView 
+                                    projects={data.projects} 
+                                    currentDate={currentDate} 
+                                    onEdit={(p) => {setEditingProject(p); setIsModalOpen(true);}} 
+                                />
+                            </div>
+                        )}
                     </main>
 
                     {/* Modals & Components */}
