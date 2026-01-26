@@ -112,12 +112,33 @@
                 return () => clearInterval(interval);
             }, []);
 
-            // Holiday Logic (Simplified for brevity, same as before)
+            // Holiday Logic
             const getPhHoliday = (date) => {
                 const m = date.getMonth() + 1; const d = date.getDate();
                 if (m === 1 && d === 1) return "New Year's Day";
                 if (m === 2 && d === 24) return "Cebu Charter Day"; 
-                // ... (Other holidays kept same)
+                if (m === 2 && d === 25) return "EDSA Revolution";
+                if (m === 4 && d === 9) return "Araw ng Kagitingan";
+                if (m === 5 && d === 1) return "Labor Day";
+                if (m === 6 && d === 12) return "Independence Day";
+                if (m === 8 && d === 6) return "Cebu Provincial Charter"; 
+                if (m === 8 && d === 21) return "Ninoy Aquino Day";
+                if (m === 8 && d >= 25 && d <= 31 && date.getDay() === 1) return "National Heroes Day"; 
+                if (m === 9 && d === 9) return "Osmeña Day"; 
+                if (m === 11 && d === 1) return "All Saints' Day";
+                if (m === 11 && d === 2) return "All Souls' Day";
+                if (m === 11 && d === 30) return "Bonifacio Day";
+                if (m === 12 && d === 8) return "Immaculate Conception";
+                if (m === 12 && d === 24) return "Christmas Eve";
+                if (m === 12 && d === 25) return "Christmas Day";
+                if (m === 12 && d === 30) return "Rizal Day";
+                if (m === 12 && d === 31) return "New Year's Eve";
+
+                // Dynamic: Sinulog (3rd Sunday of Jan)
+                if (m === 1 && date.getDay() === 0) {
+                    if (d >= 15 && d <= 21) return "Sinulog Festival"; 
+                }
+
                 return null;
             };
 
@@ -308,11 +329,13 @@
             );
         };
 
-        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, data }) => {
+        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, allData, onImport }) => {
+            const [activeTab, setActiveTab] = useState('clients');
             const [clients, setClients] = useState(initialClients);
             const [form, setForm] = useState({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] });
             const [projectInput, setProjectInput] = useState('');
             const [editIdx, setEditIdx] = useState(-1);
+            const fileRef = useRef(null);
 
             useEffect(() => { setClients(initialClients); }, [initialClients, isOpen]);
             if (!isOpen) return null;
@@ -336,71 +359,123 @@
                 setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] });
                 setEditIdx(-1);
             };
+            const deleteClient = (idx) => {
+                if(confirm('Delete?')) {
+                    const n = clients.filter((_,i)=>i!==idx);
+                    setClients(n);
+                    onUpdateLists(n);
+                }
+            };
+            const exportData = () => {
+                const blob = new Blob([JSON.stringify(allData,null,2)], {type : 'application/json'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `animtrack_backup_${new Date().toISOString().split('T')[0]}.json`; a.click();
+            };
+            const importData = (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const r = new FileReader();
+                r.onload = (ev) => {
+                    try {
+                        const d = JSON.parse(ev.target.result);
+                        if(onImport(d)) {
+                            alert('Imported successfully! Updating view...');
+                            onClose();
+                        } else alert('Invalid file format.');
+                    } catch(err) { alert('Error parsing JSON'); }
+                };
+                r.readAsText(file);
+            };
 
             return (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-900 border border-gray-700 w-full max-w-3xl rounded-2xl h-[600px] flex flex-col overflow-hidden">
-                        <div className="flex justify-between items-center p-4 border-b border-gray-800">
-                            <h2 className="text-lg font-bold text-white">Manage Clients</h2>
-                            <button onClick={onClose}><X className="text-gray-400"/></button>
+                        <div className="flex border-b border-gray-800">
+                             <button onClick={()=>setActiveTab('clients')} className={`flex-1 py-4 text-sm font-bold ${activeTab==='clients'?'bg-gray-800 text-white border-b-2 border-blue-500':'text-gray-400'}`}>Clients</button>
+                             <button onClick={()=>setActiveTab('data')} className={`flex-1 py-4 text-sm font-bold ${activeTab==='data'?'bg-gray-800 text-white border-b-2 border-emerald-500':'text-gray-400'}`}>Data Backup</button>
+                             <button onClick={onClose} className="px-6 text-gray-400 hover:text-white"><X/></button>
                         </div>
-                        <div className="flex flex-1 overflow-hidden">
-                            <div className="w-1/3 border-r border-gray-800 p-4 overflow-y-auto space-y-2">
-                                <button onClick={()=>{setEditIdx(-1); setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] })}} className="w-full py-2 border-2 border-dashed border-gray-700 text-gray-500 rounded hover:border-blue-500 text-sm font-bold">+ New Client</button>
-                                {clients.map((c, i) => (
-                                    <div key={i} onClick={()=>{setEditIdx(i); setForm(c);}} className={`p-3 rounded cursor-pointer ${editIdx===i?'bg-blue-900/20 border border-blue-500/50':'bg-gray-800 border border-gray-700 hover:border-gray-600'}`}>
-                                        <div className="font-bold text-sm text-white">{c.name}</div>
-                                        <div className="text-[10px] text-gray-400 uppercase">{c.mode.replace('_',' ')}</div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="w-2/3 p-6 overflow-y-auto space-y-4">
-                                <div>
-                                    <label className="text-xs text-gray-400">Client Name</label>
-                                    <input className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
-                                </div>
-                                <div>
-                                    <label className="text-xs text-gray-400">Payment Mode</label>
-                                    <div className="flex gap-2">
-                                        {['per_shot', 'per_project', 'monthly'].map(m => (
-                                            <button key={m} onClick={()=>setForm({...form, mode:m})} className={`flex-1 py-2 text-xs border rounded capitalize ${form.mode===m?'bg-blue-600 border-blue-500 text-white':'border-gray-700 text-gray-400'}`}>{m.replace('_',' ')}</button>
+
+                        <div className="flex-1 overflow-hidden">
+                            {activeTab === 'clients' ? (
+                                <div className="flex flex-1 h-full">
+                                    <div className="w-1/3 border-r border-gray-800 p-4 overflow-y-auto space-y-2">
+                                        <button onClick={()=>{setEditIdx(-1); setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] })}} className="w-full py-2 border-2 border-dashed border-gray-700 text-gray-500 rounded hover:border-blue-500 text-sm font-bold">+ New Client</button>
+                                        {clients.map((c, i) => (
+                                            <div key={i} onClick={()=>{setEditIdx(i); setForm(c);}} className={`p-3 rounded cursor-pointer ${editIdx===i?'bg-blue-900/20 border border-blue-500/50':'bg-gray-800 border border-gray-700 hover:border-gray-600'}`}>
+                                                <div className="font-bold text-sm text-white">{c.name}</div>
+                                                <div className="text-[10px] text-gray-400 uppercase">{c.mode.replace('_',' ')}</div>
+                                            </div>
                                         ))}
                                     </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs text-gray-400">{form.mode === 'monthly' ? 'Monthly Salary' : 'Default Rate'}</label>
-                                        <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.defaultRate} onChange={e=>setForm({...form, defaultRate:e.target.value})} />
-                                    </div>
-                                    {form.mode === 'monthly' && (
+                                    <div className="w-2/3 p-6 overflow-y-auto space-y-4">
                                         <div>
-                                            <label className="text-xs text-gray-400">Pay Day</label>
-                                            <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.payDay} onChange={e=>setForm({...form, payDay:e.target.value})} />
+                                            <label className="text-xs text-gray-400">Client Name</label>
+                                            <input className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
                                         </div>
-                                    )}
-                                </div>
-                                <div className="border-t border-gray-800 pt-4">
-                                    <label className="text-xs text-gray-400 mb-2 block">Projects / Shows</label>
-                                    <div className="flex gap-2 mb-2">
-                                        <input className="flex-1 bg-gray-800 border border-gray-700 rounded p-2 text-xs text-white" placeholder="Add Project..." value={projectInput} onChange={e=>setProjectInput(e.target.value)} />
-                                        <button onClick={addProjectToClient} className="bg-gray-700 px-3 rounded text-white"><Plus size={14}/></button>
+                                        <div>
+                                            <label className="text-xs text-gray-400">Payment Mode</label>
+                                            <div className="flex gap-2">
+                                                {['per_shot', 'per_project', 'monthly'].map(m => (
+                                                    <button key={m} onClick={()=>setForm({...form, mode:m})} className={`flex-1 py-2 text-xs border rounded capitalize ${form.mode===m?'bg-blue-600 border-blue-500 text-white':'border-gray-700 text-gray-400'}`}>{m.replace('_',' ')}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs text-gray-400">{form.mode === 'monthly' ? 'Monthly Salary' : 'Default Rate'}</label>
+                                                <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.defaultRate} onChange={e=>setForm({...form, defaultRate:e.target.value})} />
+                                            </div>
+                                            {form.mode === 'monthly' && (
+                                                <div>
+                                                    <label className="text-xs text-gray-400">Pay Day</label>
+                                                    <input type="number" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.payDay} onChange={e=>setForm({...form, payDay:e.target.value})} />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="border-t border-gray-800 pt-4">
+                                            <label className="text-xs text-gray-400 mb-2 block">Projects / Shows</label>
+                                            <div className="flex gap-2 mb-2">
+                                                <input className="flex-1 bg-gray-800 border border-gray-700 rounded p-2 text-xs text-white" placeholder="Add Project..." value={projectInput} onChange={e=>setProjectInput(e.target.value)} />
+                                                <button onClick={addProjectToClient} className="bg-gray-700 px-3 rounded text-white"><Plus size={14}/></button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {(form.projects||[]).map((p, idx) => (
+                                                    <span key={idx} className="bg-gray-800 border border-gray-600 text-xs px-2 py-1 rounded flex items-center">
+                                                        {p} <button onClick={()=>removeProjectFromClient(idx)} className="ml-1 text-red-400"><X size={10}/></button>
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="pt-4 flex justify-end gap-2">
+                                            {editIdx > -1 && <button onClick={()=>{
+                                                const n = clients.filter((_,i)=>i!==editIdx);
+                                                setClients(n); onUpdateLists(n); setEditIdx(-1); setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] });
+                                            }} className="text-red-400 text-xs mr-auto">Delete Client</button>}
+                                            <button onClick={saveClient} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold">Save Changes</button>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {(form.projects||[]).map((p, idx) => (
-                                            <span key={idx} className="bg-gray-800 border border-gray-600 text-xs px-2 py-1 rounded flex items-center">
-                                                {p} <button onClick={()=>removeProjectFromClient(idx)} className="ml-1 text-red-400"><X size={10}/></button>
-                                            </span>
-                                        ))}
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full space-y-6">
+                                    <div className="text-center">
+                                        <FileJson size={48} className="mx-auto text-gray-600 mb-4" />
+                                        <h3 className="text-xl font-bold text-white">Data Management</h3>
+                                        <p className="text-gray-400 text-sm mt-1">Export your data to JSON or restore from a backup.</p>
+                                    </div>
+                                    <div className="flex gap-4">
+                                        <button onClick={exportData} className="flex flex-col items-center p-6 bg-gray-800 border border-gray-700 rounded-xl hover:border-emerald-500 transition group">
+                                            <Download className="mb-2 text-emerald-500 group-hover:scale-110 transition-transform"/> 
+                                            <span className="text-white font-bold">Export Backup</span>
+                                        </button>
+                                        <button onClick={()=>fileRef.current.click()} className="flex flex-col items-center p-6 bg-gray-800 border border-gray-700 rounded-xl hover:border-blue-500 transition group">
+                                            <Upload className="mb-2 text-blue-500 group-hover:scale-110 transition-transform"/> 
+                                            <span className="text-white font-bold">Import Backup</span>
+                                        </button>
+                                        <input type="file" ref={fileRef} className="hidden" accept=".json" onChange={importData} />
                                     </div>
                                 </div>
-                                <div className="pt-4 flex justify-end gap-2">
-                                    {editIdx > -1 && <button onClick={()=>{
-                                        const n = clients.filter((_,i)=>i!==editIdx);
-                                        setClients(n); onUpdateLists(n); setEditIdx(-1); setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] });
-                                    }} className="text-red-400 text-xs mr-auto">Delete Client</button>}
-                                    <button onClick={saveClient} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded text-sm font-bold">Save Changes</button>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -420,12 +495,11 @@
                     } else {
                         const defC = clients[0];
                         setSelectedClient(defC);
-                        // Default logic based on client type
                         let defPayType = 'per_shot';
                         let defPrice = 0;
                         if(defC) {
                             if(defC.mode === 'per_project') defPayType = 'fixed';
-                            if(defC.mode === 'monthly') defPayType = 'monthly_work'; // Default to work log, not salary
+                            if(defC.mode === 'monthly') defPayType = 'monthly_work'; 
                             defPrice = defC.defaultRate || 0;
                         }
                         
@@ -458,7 +532,7 @@
                 setForm({
                     ...form,
                     client: name,
-                    projectName: '', // Reset project on client change
+                    projectName: '',
                     payType: pt,
                     fixedPrice: (pt === 'fixed') ? c.defaultRate : 0,
                     shotRate: (pt === 'per_shot') ? c.defaultRate : 0
