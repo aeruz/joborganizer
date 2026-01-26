@@ -61,6 +61,7 @@
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
+                    // Migration: Ensure clients have modes
                     if (parsed.clients) {
                         parsed.clients = parsed.clients.map(c => ({
                             ...c,
@@ -91,6 +92,25 @@
             }
         };
 
+        // --- Date Helpers ---
+        // Normalizes a date string or object to 00:00:00 local time to avoid timezone offsets
+        const normalizeDate = (d) => {
+            if (!d) return null;
+            const date = new Date(d);
+            if (isNaN(date.getTime())) return null;
+            date.setHours(0, 0, 0, 0);
+            return date;
+        };
+
+        // Get diff in days between two dates
+        const getDayDiff = (d1, d2) => {
+            const date1 = normalizeDate(d1);
+            const date2 = normalizeDate(d2);
+            if (!date1 || !date2) return 0;
+            const diffTime = date2.getTime() - date1.getTime();
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        };
+
         // --- Components ---
 
         const StatCard = ({ title, value, icon: Icon, colorClass, subtext }) => (
@@ -116,6 +136,7 @@
                     const now = new Date();
                     const totalMinutes = 24 * 60;
                     const passedMinutes = now.getHours() * 60 + now.getMinutes();
+                    // Time Passed: 0% at 12 AM -> 100% at 11:59 PM (Left to Right filling)
                     setDayProgress((passedMinutes / totalMinutes) * 100);
                 };
                 updateDayProgress();
@@ -168,7 +189,7 @@
             }
 
             const getStatusColor = (item) => {
-                if (item.isWorkingOn) return 'bg-blue-600 border-blue-400 text-white shadow-lg z-20';
+                if (item.isWorkingOn) return 'bg-blue-600 border-blue-400 text-white shadow-lg z-20 ring-1 ring-blue-300';
                 switch(item.status) {
                     case 'paid': return 'bg-emerald-600/80 border-emerald-500 text-white';
                     case 'completed': return 'bg-yellow-600/80 border-yellow-500 text-white';
@@ -187,11 +208,12 @@
                             </div>
                             
                             {weeks.map((week, wIdx) => {
+                                // Find items in this week using SAFE date logic
                                 const weekItems = projects.filter(p => {
-                                   const start = new Date(p.startDate || p.createdAt);
-                                   const end = new Date(p.deadline || new Date());
-                                   const wStart = week[0];
-                                   const wEnd = new Date(week[6]); wEnd.setHours(23,59,59);
+                                   const start = normalizeDate(p.startDate) || normalizeDate(p.createdAt) || normalizeDate(new Date());
+                                   const end = normalizeDate(p.deadline) || normalizeDate(new Date());
+                                   const wStart = normalizeDate(week[0]);
+                                   const wEnd = normalizeDate(week[6]);
                                    return start <= wEnd && end >= wStart;
                                 });
 
@@ -216,13 +238,39 @@
                                             })}
                                         </div>
                                         <div className="relative z-10 w-full pt-8 pb-2">
-                                            {weekItems.map((item, idx) => (
-                                                 <div key={item.id} className="px-1 mb-1">
-                                                     <button onClick={()=>onEdit(item)} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
-                                                         {item.name}
-                                                     </button>
-                                                 </div>
-                                            ))}
+                                            {weekItems.map((item, idx) => {
+                                                 const start = normalizeDate(item.startDate) || normalizeDate(item.createdAt) || normalizeDate(new Date());
+                                                 const end = normalizeDate(item.deadline) || normalizeDate(new Date());
+                                                 const wStart = normalizeDate(week[0]);
+
+                                                 // Calculate column span safely
+                                                 const daysSinceWeekStart = getDayDiff(wStart, start);
+                                                 const colStart = Math.max(0, daysSinceWeekStart);
+                                                 
+                                                 const projectDuration = getDayDiff(start, end) + 1; // +1 to include start day
+                                                 // Adjust duration if it started before this week
+                                                 const visibleDuration = projectDuration - (daysSinceWeekStart < 0 ? Math.abs(daysSinceWeekStart) : 0);
+                                                 
+                                                 // Clamp to week width (7 days)
+                                                 const colSpan = Math.min(visibleDuration, 7 - colStart);
+
+                                                 if (colSpan <= 0) return null;
+
+                                                 return (
+                                                     <div key={item.id} 
+                                                          className="absolute h-5 px-1 mt-1 z-10"
+                                                          style={{
+                                                              left: `${(colStart / 7) * 100}%`,
+                                                              width: `${(colSpan / 7) * 100}%`,
+                                                              top: `${idx * 22}px` // Simple stacking based on array index
+                                                          }}
+                                                     >
+                                                         <button onClick={()=>onEdit(item)} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
+                                                             {item.name}
+                                                         </button>
+                                                     </div>
+                                                 )
+                                            })}
                                         </div>
                                     </div>
                                 );
@@ -251,8 +299,42 @@
             }
             
             const isActiveWorking = project.isWorkingOn;
-            const deadline = project.deadline ? new Date(project.deadline) : null;
-            const isOverdue = deadline && new Date() > deadline && project.status !== 'paid';
+            
+            // Normalized Dates for accurate deadline calculation
+            const today = normalizeDate(new Date());
+            const deadline = normalizeDate(project.deadline);
+            const start = normalizeDate(project.startDate) || normalizeDate(project.createdAt) || today;
+            
+            let isOverdue = false;
+            let timeProg = 0;
+            let timeColor = 'bg-blue-400';
+            let daysLeftText = '';
+
+            if (deadline && project.status !== 'paid' && project.status !== 'completed') {
+                const totalDays = getDayDiff(start, deadline);
+                const elapsedDays = getDayDiff(start, today);
+                const remainingDays = getDayDiff(today, deadline);
+
+                // Progress Calculation
+                if (totalDays > 0) {
+                    timeProg = Math.max(0, Math.min(100, (elapsedDays / totalDays) * 100));
+                } else if (elapsedDays > 0) {
+                    timeProg = 100; // Started but no duration or deadline passed
+                } else {
+                    timeProg = 0; // Starts in future
+                }
+
+                if (remainingDays < 0) {
+                    isOverdue = true;
+                    timeProg = 100;
+                    timeColor = 'bg-red-500';
+                    daysLeftText = 'Overdue';
+                } else {
+                    daysLeftText = remainingDays === 0 ? 'Due Today' : `${remainingDays} days left`;
+                    if (timeProg > 90) timeColor = 'bg-red-500';
+                    else if (timeProg > 75) timeColor = 'bg-orange-500';
+                }
+            }
 
             let stageColor = 'text-gray-400 border-gray-600';
             if(['layout','blocking','splining','polishing'].includes(project.status)) stageColor = 'text-blue-400 border-blue-500/50 bg-blue-900/10';
@@ -288,8 +370,27 @@
                         </div>
                     </div>
                     
-                    <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden mb-1">
-                        <div className="bg-blue-500 h-1 rounded-full" style={{width: `${project.progress||0}%`}}></div>
+                    <div className="space-y-1.5">
+                        {/* Work Progress */}
+                        <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden mb-1">
+                            <div className="bg-blue-500 h-1 rounded-full" style={{width: `${project.progress||0}%`}}></div>
+                        </div>
+                        
+                        {/* Time Elapsed / Deadline Bar */}
+                        {deadline && (
+                            <div>
+                                <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden relative">
+                                    {/* Base Bar */}
+                                    <div className={`${timeColor} h-1 rounded-full transition-all duration-500`} style={{width: `${timeProg}%`}}></div>
+                                </div>
+                                <div className="flex justify-between items-center pt-1">
+                                    <span className={`text-[10px] flex items-center ${isOverdue ? 'text-red-400 font-bold' : 'text-gray-500'}`}>
+                                        <Clock size={10} className="mr-1"/> 
+                                        {daysLeftText}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {project.status !== 'paid' && (
@@ -587,20 +688,28 @@
                             <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
                                 {selectedClient?.mode === 'monthly' ? (
                                     <div className="space-y-3">
-                                        <div className="text-center">
-                                            <p className="text-xs text-gray-500 mb-1">Monthly Retainer Mode</p>
-                                            <div className="text-sm text-purple-400 font-bold mb-2">Covered by Salary (${selectedClient.defaultRate})</div>
-                                            <div className="grid grid-cols-2 gap-4 text-left">
-                                                <div><label className="text-[10px] text-gray-500">Shot Rate</label><input type="number" className="bg-gray-900 border border-gray-700 rounded p-2 text-white w-full text-xs" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} /></div>
-                                                <div><label className="text-[10px] text-gray-500">Count</label><input type="number" className="bg-gray-900 border border-gray-700 rounded p-2 text-white w-full text-xs" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} /></div>
-                                            </div>
+                                        <div className="flex bg-gray-900 p-1 rounded">
+                                            <button type="button" onClick={()=>setForm({...form, payType:'monthly_work', fixedPrice:0})} className={`flex-1 py-1 text-xs rounded ${form.payType==='monthly_work'?'bg-purple-600 text-white':'text-gray-400'}`}>Log Work (Task)</button>
+                                            <button type="button" onClick={()=>setForm({...form, payType:'monthly_salary', fixedPrice:selectedClient.defaultRate})} className={`flex-1 py-1 text-xs rounded ${form.payType==='monthly_salary'?'bg-emerald-600 text-white':'text-gray-400'}`}>Log Salary (Payment)</button>
                                         </div>
+                                        
+                                        {form.payType === 'monthly_salary' ? (
+                                            <div className="text-center">
+                                                <p className="text-xs text-gray-500">Monthly Payment Amount</p>
+                                                <div className="text-xl font-bold text-emerald-400">${form.fixedPrice}</div>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <input type="number" placeholder="Shot Rate (Ref)" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} />
+                                                <input type="number" placeholder="Count" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} />
+                                                <div className="col-span-2 text-[10px] text-center text-gray-500">Value tracks internal stats only. Income comes from Salary logs.</div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : selectedClient?.mode === 'per_project' ? (
                                     <div>
-                                        <label className="text-xs text-gray-400">Fixed Project Price (Total)</label>
+                                        <label className="text-xs text-gray-400">Fixed Project Price</label>
                                         <input type="number" className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.fixedPrice} onChange={e=>setForm({...form, fixedPrice:e.target.value})} />
-                                        <p className="text-[10px] text-gray-500 mt-1">This price counts once per project.</p>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-2 gap-4">
@@ -746,54 +855,22 @@
 
             const stats = useMemo(() => {
                 let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
-                
-                // Helper Sets for Unique Stacking
-                const countedProjects = new Set();
-                const countedMonths = new Set();
-
-                // Sort to ensure we prioritize paid/completed when deciding to count a project
-                const sortedProjects = [...data.projects].sort((a,b) => (a.status==='paid' ? -1 : 1));
-
-                sortedProjects.forEach(p => {
-                    const client = data.clients.find(c => c.name === p.client);
-                    const mode = client?.mode || 'per_shot';
-                    const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
-                    const dateObj = new Date(dateRef || p.createdAt);
-                    const monthKey = `${p.client}_${dateObj.getMonth()}_${dateObj.getFullYear()}`;
-                    const projectKey = `${p.client}_${p.projectName}`;
-                    
+                data.projects.forEach(p => {
+                    // Logic: Work Logs DO NOT count for income, only Salary tickets or Shot/Fixed payments
                     let val = 0;
-                    let shouldAdd = false;
-
-                    if (mode === 'per_shot') {
-                        val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
-                        shouldAdd = true;
-                    } else if (mode === 'per_project') {
-                         // Only count if this project key hasn't been added yet
-                         if (!countedProjects.has(projectKey)) {
-                             val = parseFloat(p.fixedPrice || 0);
-                             countedProjects.add(projectKey);
-                             shouldAdd = true;
-                         }
-                    } else if (mode === 'monthly') {
-                         // Only count if this month key hasn't been added yet
-                         if (!countedMonths.has(monthKey)) {
-                             val = parseFloat(client.defaultRate || 0);
-                             countedMonths.add(monthKey);
-                             shouldAdd = true;
-                         }
-                    }
-
-                    if (shouldAdd && isSameMonth(dateRef, currentDate)) {
-                        if (p.status === 'paid') monthlyEarned += val;
-                        else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
-                            if (p.status === 'completed') pendingPayment += val;
-                            else monthlyProjected += val;
-                        }
+                    if(p.payType === 'monthly_work') val = 0; // Explicitly 0 for stats
+                    else if (p.payType === 'per_shot') val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
+                    else if (p.payType === 'fixed' || p.payType === 'monthly_salary') val = parseFloat(p.fixedPrice||0);
+                    
+                    if (p.status === 'paid') {
+                        if (isSameMonth(p.paymentDate, currentDate)) monthlyEarned += val;
+                    } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
+                        if (p.deadline && isSameMonth(p.deadline, currentDate)) monthlyProjected += val;
+                        if (p.status === 'completed') pendingPayment += val;
                     }
                 });
                 return { monthlyEarned, monthlyProjected, pendingPayment };
-            }, [data.projects, data.clients, currentDate]);
+            }, [data.projects, currentDate]);
 
             // --- Views ---
             const columns = [
