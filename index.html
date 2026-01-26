@@ -59,7 +59,19 @@
         const loadData = () => {
             try {
                 const saved = localStorage.getItem(STORAGE_KEY);
-                if (saved) return JSON.parse(saved);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Migration: Ensure clients have modes
+                    if (parsed.clients) {
+                        parsed.clients = parsed.clients.map(c => ({
+                            ...c,
+                            mode: c.mode || 'per_shot', // Default if missing
+                            defaultRate: c.defaultRate || 0,
+                            payDay: c.payDay || 25
+                        }));
+                    }
+                    return parsed;
+                }
             } catch (e) {
                 console.error("Data load error", e);
             }
@@ -97,7 +109,7 @@
         );
 
         const CalendarView = ({ projects, currentDate, onEdit }) => {
-            const [dayProgress, setDayProgress] = useState(100);
+            const [dayProgress, setDayProgress] = useState(0);
             const [activeHoliday, setActiveHoliday] = useState(null); 
 
             useEffect(() => {
@@ -105,8 +117,8 @@
                     const now = new Date();
                     const totalMinutes = 24 * 60;
                     const passedMinutes = now.getHours() * 60 + now.getMinutes();
-                    // 12 AM = 100%, 12 PM = 50%, 11:59 PM = 0%
-                    setDayProgress(100 - ((passedMinutes / totalMinutes) * 100));
+                    // Time Passed: 0% at 12 AM -> 100% at 11:59 PM (Left to Right filling)
+                    setDayProgress((passedMinutes / totalMinutes) * 100);
                 };
                 updateDayProgress();
                 const interval = setInterval(updateDayProgress, 60000); 
@@ -400,7 +412,7 @@
                                         {clients.map((c, i) => (
                                             <div key={i} onClick={()=>{setEditIdx(i); setForm(c);}} className={`p-3 rounded cursor-pointer ${editIdx===i?'bg-blue-900/20 border border-blue-500/50':'bg-gray-800 border border-gray-700 hover:border-gray-600'}`}>
                                                 <div className="font-bold text-sm text-white">{c.name}</div>
-                                                <div className="text-[10px] text-gray-400 uppercase">{c.mode.replace('_',' ')}</div>
+                                                <div className="text-[10px] text-gray-400 uppercase">{(c.mode || 'per_shot').replace('_',' ')}</div>
                                             </div>
                                         ))}
                                     </div>
