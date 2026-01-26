@@ -54,7 +54,7 @@
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
-        const STORAGE_KEY = 'animtrack_db_v7'; 
+        const STORAGE_KEY = 'animtrack_db_v8'; 
         
         const loadData = () => {
             try {
@@ -234,7 +234,8 @@
                                                 );
                                             })}
                                         </div>
-                                        <div className="relative z-10 w-full pt-8 pb-2">
+                                        {/* Task Bars - Bottom Up Stacking */}
+                                        <div className="relative z-10 w-full h-full pointer-events-none pt-8"> 
                                             {weekItems.map((item, idx) => {
                                                  const start = parseLocalDate(item.startDate || item.createdAt);
                                                  const end = parseLocalDate(item.deadline) || start;
@@ -244,21 +245,19 @@
                                                  const diffEnd = getDayDiff(wStart, end);
                                                  const colStart = Math.max(0, diffStart);
                                                  const colEnd = Math.min(6, diffEnd);
-                                                 
                                                  if (colStart > 6 || colEnd < 0) return null;
-                                                 
                                                  const span = (colEnd - colStart) + 1;
                                                  
                                                  return (
                                                      <div key={item.id} 
-                                                          className="absolute h-5 px-1 mt-1 z-10"
+                                                          className="absolute h-5 px-1 z-10 pointer-events-auto"
                                                           style={{
                                                               left: `${(colStart / 7) * 100}%`,
                                                               width: `${(span / 7) * 100}%`,
-                                                              bottom: `${idx * 22 + 2}px` // Stack from bottom up
+                                                              bottom: `${idx * 22 + 4}px` // Stack from bottom
                                                           }}
                                                      >
-                                                         <button onClick={()=>onEdit(item)} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
+                                                         <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
                                                              {item.name}
                                                          </button>
                                                      </div>
@@ -282,7 +281,6 @@
             let label = '';
             
             if (mode === 'monthly') {
-                 // For monthly mode, only the Payment ticket has value. Regular tasks are 0 to avoid stacking.
                  if (project.payType === 'monthly_salary') {
                     val = project.fixedPrice || client?.defaultRate || 0;
                     label = '(Monthly Salary)';
@@ -883,8 +881,12 @@
                         if (!monthlyClientStats[p.client]) {
                             monthlyClientStats[p.client] = { earned: false, projected: false, rate: client.defaultRate || 0 };
                         }
+                        // If any task is paid, whole salary is earned. If pending (completed), projected becomes pending?
+                        // Actually, simplify: If paid -> earned. If completed -> pending. Else -> projected.
+                        // Priority: Paid > Pending > Active
                         if (p.status === 'paid') monthlyClientStats[p.client].earned = true;
-                        else monthlyClientStats[p.client].projected = true; 
+                        else if (p.status === 'completed' && !monthlyClientStats[p.client].earned) monthlyClientStats[p.client].pending = true;
+                        else if (!monthlyClientStats[p.client].earned && !monthlyClientStats[p.client].pending) monthlyClientStats[p.client].projected = true; 
                     } else {
                         // Standard Logic
                         let val = (mode === 'per_project') ? parseFloat(p.fixedPrice||0) : (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
@@ -899,6 +901,7 @@
                 // Process Monthly Groups
                 Object.values(monthlyClientStats).forEach(group => {
                     if (group.earned) monthlyEarned += group.rate;
+                    else if (group.pending) pendingPayment += group.rate;
                     else if (group.projected) monthlyProjected += group.rate;
                 });
 
