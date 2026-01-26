@@ -255,7 +255,7 @@
                                                           style={{
                                                               left: `${(colStart / 7) * 100}%`,
                                                               width: `${(span / 7) * 100}%`,
-                                                              top: `${idx * 22}px`
+                                                              bottom: `${idx * 22 + 2}px` // Stack from bottom up
                                                           }}
                                                      >
                                                          <button onClick={()=>onEdit(item)} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
@@ -282,13 +282,13 @@
             let label = '';
             
             if (mode === 'monthly') {
+                 // For monthly mode, only the Payment ticket has value. Regular tasks are 0 to avoid stacking.
                  if (project.payType === 'monthly_salary') {
                     val = project.fixedPrice || client?.defaultRate || 0;
                     label = '(Monthly Salary)';
                  } else {
-                    // Force work items to 0 visual value for monthly to avoid confusion, or show estimated
-                    val = (project.shotRate || 0) * (project.shotCount || 0);
-                    label = '(Covered)';
+                    val = 0;
+                    label = '(Covered by Salary)';
                  }
             } else if (mode === 'per_project') {
                 val = project.fixedPrice || 0;
@@ -356,7 +356,7 @@
                         </div>
                         <div className="text-right">
                              <span className={`text-xs font-mono font-bold ${mode === 'monthly' && project.payType !== 'monthly_salary' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                                {mode === 'monthly' && project.payType !== 'monthly_salary' ? 'Included' : `$${val.toLocaleString()}`}
+                                {val > 0 ? `$${val.toLocaleString()}` : 'Included'}
                             </span>
                             {label && <div className="text-[9px] text-gray-500">{label}</div>}
                         </div>
@@ -812,12 +812,35 @@
                     const todayStr = new Date().toISOString().split('T')[0];
                     let updates = { status: newStatus };
                     if (newStatus === 'paid' && !project.paymentDate) updates.paymentDate = todayStr;
-                    
-                    // Simple update for now, batch logic removed for simplicity in this structural update
-                    setData(prev => ({
-                        ...prev,
-                        projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p)
-                    }));
+
+                    const client = data.clients.find(c => c.name === project.client);
+                    const isMonthly = client?.mode === 'monthly';
+
+                    // BATCH UPDATE: If monthly client & paid, mark ALL tasks for this client in this month as paid
+                    if (newStatus === 'paid' && isMonthly) {
+                         const targetDate = new Date(project.deadline || project.createdAt);
+                         const targetMonth = targetDate.getMonth();
+                         const targetYear = targetDate.getFullYear();
+
+                         const updatedProjects = data.projects.map(p => {
+                            if (p.client === project.client && p.status !== 'paid') {
+                                const pDate = new Date(p.deadline || p.createdAt);
+                                if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
+                                    return { ...p, status: 'paid', paymentDate: todayStr };
+                                }
+                            }
+                            // Also update the one dragged
+                            if (p.id === project.id) return { ...p, ...updates };
+                            return p;
+                         });
+                         setData(prev => ({ ...prev, projects: updatedProjects }));
+                    } else {
+                        // Standard Single Update
+                        setData(prev => ({
+                            ...prev,
+                            projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p)
+                        }));
+                    }
                 }
             };
 
@@ -843,34 +866,42 @@
 
             const stats = useMemo(() => {
                 let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
+                
+                // Grouping to ensure Fixed Monthly Rate is only counted ONCE per month per client
+                const monthlyClientStats = {}; // { clientName: { earned: bool, projected: bool, rate: num } }
+
                 data.projects.forEach(p => {
                     const client = data.clients.find(c => c.name === p.client);
-                    const mode = client?.mode;
-                    let val = 0;
-                    
-                    // --- STRICT MONTHLY LOGIC ---
-                    if (mode === 'monthly') {
-                         // Only count Salary Tickets. Ignore Work Logs.
-                         if (p.payType === 'monthly_salary') {
-                             val = parseFloat(p.fixedPrice || 0);
-                         } else {
-                             val = 0;
-                         }
-                    } else {
-                        // Standard logic for per_shot / per_project
-                        if (p.payType === 'per_shot') val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
-                        else if (p.payType === 'fixed') val = parseFloat(p.fixedPrice||0);
-                    }
-                    
+                    const mode = client?.mode || 'per_shot';
                     const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
+                    
+                    // Only count stats for current visible month
+                    if (!isSameMonth(dateRef, currentDate)) return;
 
-                    if (p.status === 'paid') {
-                        if (isSameMonth(p.paymentDate, currentDate)) monthlyEarned += val;
-                    } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
-                        if (isSameMonth(dateRef, currentDate)) monthlyProjected += val;
-                        if (p.status === 'completed') pendingPayment += val;
+                    if (mode === 'monthly') {
+                        // Monthly Logic: Group by client
+                        if (!monthlyClientStats[p.client]) {
+                            monthlyClientStats[p.client] = { earned: false, projected: false, rate: client.defaultRate || 0 };
+                        }
+                        if (p.status === 'paid') monthlyClientStats[p.client].earned = true;
+                        else monthlyClientStats[p.client].projected = true; 
+                    } else {
+                        // Standard Logic
+                        let val = (mode === 'per_project') ? parseFloat(p.fixedPrice||0) : (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
+                        if (p.status === 'paid') monthlyEarned += val;
+                        else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
+                            if (p.status === 'completed') pendingPayment += val;
+                            else monthlyProjected += val;
+                        }
                     }
                 });
+
+                // Process Monthly Groups
+                Object.values(monthlyClientStats).forEach(group => {
+                    if (group.earned) monthlyEarned += group.rate;
+                    else if (group.projected) monthlyProjected += group.rate;
+                });
+
                 return { monthlyEarned, monthlyProjected, pendingPayment };
             }, [data.projects, data.clients, currentDate]);
 
