@@ -50,7 +50,7 @@
             ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
-            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star
+            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, FolderOpen
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
@@ -95,9 +95,8 @@
         const parseLocalDate = (dateStr) => {
             if (!dateStr) return null;
             if (dateStr instanceof Date) return dateStr; 
-            if (dateStr.includes('T')) return new Date(dateStr); // Legacy data
+            if (dateStr.includes('T')) return new Date(dateStr); 
             
-            // Force YYYY-MM-DD to be treated as local start of day
             const [y, m, d] = dateStr.split('-').map(Number);
             return new Date(y, m - 1, d);
         };
@@ -106,7 +105,6 @@
             const date1 = parseLocalDate(d1);
             const date2 = parseLocalDate(d2);
             if (!date1 || !date2) return 0;
-            // Normalize to midnight
             date1.setHours(0,0,0,0);
             date2.setHours(0,0,0,0);
             const diffTime = date2.getTime() - date1.getTime();
@@ -208,19 +206,37 @@
                             </div>
                             
                             {weeks.map((week, wIdx) => {
-                                // Filter items strictly by date range using Local Date
+                                // Filter and Sort items
                                 const weekStart = parseLocalDate(week[0]);
                                 const weekEnd = parseLocalDate(week[6]);
                                 
                                 const weekItems = projects.filter(p => {
                                    const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
                                    const end = parseLocalDate(p.deadline) || new Date();
-                                   // Check overlap
+                                   start.setHours(0,0,0,0);
+                                   end.setHours(23,59,59,999);
                                    return start <= weekEnd && end >= weekStart;
                                 });
 
+                                // Sort: Deadline first, then Start Date
+                                weekItems.sort((a, b) => {
+                                    const d1 = parseLocalDate(a.deadline) || new Date(9999, 11, 31);
+                                    const d2 = parseLocalDate(b.deadline) || new Date(9999, 11, 31);
+                                    if (d1.getTime() !== d2.getTime()) return d1 - d2;
+                                    const s1 = parseLocalDate(a.startDate || a.createdAt);
+                                    const s2 = parseLocalDate(b.startDate || b.createdAt);
+                                    return s1 - s2;
+                                });
+
+                                // Dynamic Row Height for centering
+                                const itemHeight = 22;
+                                const contentHeight = weekItems.length * itemHeight;
+                                const minRowHeight = 150;
+                                const rowHeight = Math.max(minRowHeight, contentHeight + 60);
+                                const verticalStart = Math.max(30, (rowHeight - contentHeight) / 2); // Center vertically, but respect header
+
                                 return (
-                                    <div key={wIdx} className="relative border-b border-gray-800 min-h-[150px]">
+                                    <div key={wIdx} className="relative border-b border-gray-800" style={{ height: `${rowHeight}px` }}>
                                         <div className="grid grid-cols-7 absolute inset-0 z-0">
                                             {week.map((day, dIdx) => {
                                                 const isToday = day.toDateString() === new Date().toDateString();
@@ -239,8 +255,9 @@
                                                 );
                                             })}
                                         </div>
-                                        {/* Task Bars - Bottom Up Stacking */}
-                                        <div className="relative z-10 w-full h-full pointer-events-none pt-8"> 
+                                        
+                                        {/* Vertically Centered Task Bars */}
+                                        <div className="relative z-10 w-full pointer-events-none"> 
                                             {weekItems.map((item, idx) => {
                                                  const start = parseLocalDate(item.startDate || item.createdAt);
                                                  const end = parseLocalDate(item.deadline) || start;
@@ -261,7 +278,7 @@
                                                           style={{
                                                               left: `${(colStart / 7) * 100}%`,
                                                               width: `${(span / 7) * 100}%`,
-                                                              bottom: `${idx * 22 + 4}px` // Stack from bottom
+                                                              top: `${verticalStart + (idx * 22)}px` // Centered Vertical Stacking
                                                           }}
                                                      >
                                                          <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
@@ -433,6 +450,41 @@
                                 <input type="range" min="0" max="100" value={progress} onChange={changeProg} className="w-full h-2 bg-gray-700 rounded-lg accent-blue-500" />
                             </div>
                             <textarea className="w-full h-[300px] bg-gray-950 border border-gray-800 rounded-xl p-4 text-gray-300 font-mono text-sm" value={notes} onChange={changeNotes} placeholder="Notes..." />
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ArchiveModal = ({ isOpen, onClose, projects, clients }) => {
+            if(!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-700 w-full max-w-4xl rounded-2xl h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="flex justify-between items-center p-4 border-b border-gray-800">
+                            <div className="flex items-center gap-2">
+                                <FolderOpen className="text-emerald-500"/>
+                                <h2 className="text-lg font-bold text-white">Paid Projects Archive</h2>
+                            </div>
+                            <button onClick={onClose}><X className="text-gray-400 hover:text-white"/></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {projects.map(p => (
+                                    <div key={p.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700 opacity-80 hover:opacity-100 transition">
+                                        <div className="flex justify-between mb-2">
+                                            <span className="text-xs text-gray-500 uppercase">{p.client}</span>
+                                            <span className="text-xs text-emerald-400 font-mono font-bold">Paid</span>
+                                        </div>
+                                        <h4 className="font-bold text-sm text-white mb-2">{p.name}</h4>
+                                        <div className="flex justify-between text-[10px] text-gray-500">
+                                            <span>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '-'}</span>
+                                            <span>{p.payType === 'monthly_salary' ? 'Salary' : 'Task'}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {projects.length === 0 && <div className="col-span-full text-center text-gray-600 py-10">No paid projects yet.</div>}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -755,6 +807,7 @@
             const [viewMode, setViewMode] = useState('board'); 
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isListManagerOpen, setIsListManagerOpen] = useState(false);
+            const [isArchiveOpen, setIsArchiveOpen] = useState(false); // Archive State
             const [editingProject, setEditingProject] = useState(null);
             const [viewingProject, setViewingProject] = useState(null);
             const [currentDate, setCurrentDate] = useState(new Date());
@@ -817,12 +870,35 @@
                     const todayStr = new Date().toISOString().split('T')[0];
                     let updates = { status: newStatus };
                     if (newStatus === 'paid' && !project.paymentDate) updates.paymentDate = todayStr;
-                    
-                    // Simple update for now, batch logic removed for simplicity in this structural update
-                    setData(prev => ({
-                        ...prev,
-                        projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p)
-                    }));
+
+                    const client = data.clients.find(c => c.name === project.client);
+                    const isMonthly = client?.mode === 'monthly';
+
+                    // BATCH UPDATE: If monthly client & paid, mark ALL tasks for this client in this month as paid
+                    if (newStatus === 'paid' && isMonthly) {
+                         const targetDate = new Date(project.deadline || project.createdAt);
+                         const targetMonth = targetDate.getMonth();
+                         const targetYear = targetDate.getFullYear();
+
+                         const updatedProjects = data.projects.map(p => {
+                            if (p.client === project.client && p.status !== 'paid') {
+                                const pDate = new Date(p.deadline || p.createdAt);
+                                if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
+                                    return { ...p, status: 'paid', paymentDate: todayStr };
+                                }
+                            }
+                            // Also update the one dragged
+                            if (p.id === project.id) return { ...p, ...updates };
+                            return p;
+                         });
+                         setData(prev => ({ ...prev, projects: updatedProjects }));
+                    } else {
+                        // Standard Single Update
+                        setData(prev => ({
+                            ...prev,
+                            projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p)
+                        }));
+                    }
                 }
             };
 
@@ -993,20 +1069,32 @@
                                 {columns.map(col => (
                                     <div key={col.id} className="w-full">
                                         <div className="flex items-center mb-2 px-1 py-1 bg-gray-950/80 sticky top-0 z-10 backdrop-blur-sm border-b border-gray-800">
-                                            <col.icon size={16} className={`mr-2 ${col.color}`} />
-                                            <h3 className="font-semibold text-gray-200 text-sm uppercase tracking-wide">{col.label}</h3>
-                                            <span className="ml-auto bg-gray-800 text-gray-500 text-[10px] px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
-                                        </div>
-                                        <div className="flex space-x-3 overflow-x-auto pb-4 pt-1 px-1 custom-scrollbar min-h-[120px]">
-                                            {projectsByStatus[col.id]?.map(p => (
-                                                <ProjectCard key={p.id} project={p} clients={data.clients} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} onToggleActive={handleToggleActive} />
-                                            ))}
-                                            {projectsByStatus[col.id]?.length === 0 && (
-                                                <div className="w-64 h-24 flex items-center justify-center border-2 border-dashed border-gray-800 rounded-xl text-gray-600 text-xs italic shrink-0">
-                                                    Empty Stage
-                                                </div>
+                                            {col.id === 'paid' ? (
+                                                <button onClick={() => setIsArchiveOpen(true)} className="flex items-center w-full hover:bg-gray-800 rounded p-1 transition">
+                                                    <Folder size={16} className="mr-2 text-emerald-300" />
+                                                    <h3 className="font-semibold text-gray-200 text-sm uppercase tracking-wide">Paid Projects Archive</h3>
+                                                    <span className="ml-auto bg-gray-800 text-gray-500 text-[10px] px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <col.icon size={16} className={`mr-2 ${col.color}`} />
+                                                    <h3 className="font-semibold text-gray-200 text-sm uppercase tracking-wide">{col.label}</h3>
+                                                    <span className="ml-auto bg-gray-800 text-gray-500 text-[10px] px-2 py-0.5 rounded-full border border-gray-700">{projectsByStatus[col.id]?.length || 0}</span>
+                                                </>
                                             )}
                                         </div>
+                                        {col.id !== 'paid' && (
+                                            <div className="flex space-x-3 overflow-x-auto pb-4 pt-1 px-1 custom-scrollbar min-h-[120px]">
+                                                {projectsByStatus[col.id]?.map(p => (
+                                                    <ProjectCard key={p.id} project={p} clients={data.clients} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} onToggleActive={handleToggleActive} />
+                                                ))}
+                                                {projectsByStatus[col.id]?.length === 0 && (
+                                                    <div className="w-64 h-24 flex items-center justify-center border-2 border-dashed border-gray-800 rounded-xl text-gray-600 text-xs italic shrink-0">
+                                                        Empty Stage
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -1020,6 +1108,7 @@
                     {/* Modals */}
                     <ProjectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveProject} onDelete={handleDeleteProject} initialData={editingProject} clients={data.clients} />
                     <ListManager isOpen={isListManagerOpen} onClose={() => setIsListManagerOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImportData} />
+                    <ArchiveModal isOpen={isArchiveOpen} onClose={() => setIsArchiveOpen(false)} projects={projectsByStatus.paid} clients={data.clients} />
                     {viewingProject && <ProjectDetails project={viewingProject} onClose={() => setViewingProject(null)} onUpdate={handleUpdateNotes} onEdit={() => {setViewingProject(null); setEditingProject(viewingProject); setIsModalOpen(true);}} />}
                 </div>
             );
