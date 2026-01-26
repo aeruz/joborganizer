@@ -96,7 +96,6 @@
             if (!dateStr) return null;
             if (dateStr instanceof Date) return dateStr; 
             if (dateStr.includes('T')) return new Date(dateStr); 
-            
             const [y, m, d] = dateStr.split('-').map(Number);
             return new Date(y, m - 1, d);
         };
@@ -206,11 +205,9 @@
                             </div>
                             
                             {weeks.map((week, wIdx) => {
-                                // Filter items strictly by date range
-                                const weekStart = week[0]; 
-                                weekStart.setHours(0,0,0,0);
-                                const weekEnd = week[6]; 
-                                weekEnd.setHours(23,59,59,999);
+                                // Correctly filter overlapping tasks
+                                const weekStart = new Date(week[0]); weekStart.setHours(0,0,0,0);
+                                const weekEnd = new Date(week[6]); weekEnd.setHours(23,59,59,999);
 
                                 const weekItems = projects.filter(p => {
                                    const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
@@ -245,11 +242,14 @@
                                                  const start = parseLocalDate(item.startDate || item.createdAt);
                                                  const end = parseLocalDate(item.deadline) || start;
                                                  const wStart = week[0];
+                                                 
                                                  const diffStart = getDayDiff(wStart, start);
                                                  const diffEnd = getDayDiff(wStart, end);
                                                  const colStart = Math.max(0, diffStart);
                                                  const colEnd = Math.min(6, diffEnd);
+                                                 
                                                  if (colStart > 6 || colEnd < 0) return null;
+                                                 
                                                  const span = (colEnd - colStart) + 1;
                                                  
                                                  return (
@@ -336,11 +336,11 @@
             else if(project.status === 'paid') stageColor = 'text-emerald-400 border-emerald-500/50 bg-emerald-900/10';
 
             return (
-                <div onClick={() => onViewDetails(project)} className={`rounded-xl p-3 mb-2 shadow-md active:scale-95 transition-transform group relative border-l-4 ${isOverdue ? 'border-red-500' : (isActiveWorking ? 'border-blue-500' : 'border-gray-700')} ${isActiveWorking ? 'bg-blue-900/20' : 'bg-gray-800'}`}>
+                <div onClick={() => onViewDetails(project)} className={`rounded-xl p-3 shadow-md active:scale-95 transition-transform group relative border-l-4 min-w-[260px] flex-shrink-0 ${isOverdue ? 'border-red-500' : (isActiveWorking ? 'border-blue-500' : 'border-gray-700')} ${isActiveWorking ? 'bg-blue-900/20' : 'bg-gray-800'}`}>
                     <div className="flex justify-between items-start mb-2">
                         <div className="flex-1 pr-2 overflow-hidden">
                             <div className="flex items-center text-[10px] text-gray-500 font-semibold mb-0.5 truncate uppercase tracking-wider">
-                                {project.client} {project.projectName && <span className="mx-1 opacity-50">/ {project.projectName}</span>}
+                                {project.client}
                             </div>
                             <h4 className="font-bold text-sm text-white truncate">{project.name}</h4>
                         </div>
@@ -382,10 +382,10 @@
                             </div>
                         )}
                     </div>
-
+                    
                     {project.status !== 'paid' && (
                         <div className="mt-2 pt-2 border-t border-gray-700/50 flex justify-end">
-                            <button onClick={(e) => { e.stopPropagation(); moveStatus(project, 'forward'); }} className="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center shadow-sm border border-gray-600">
+                             <button onClick={(e) => { e.stopPropagation(); moveStatus(project, 'forward'); }} className="text-[10px] bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded flex items-center shadow-sm border border-gray-600">
                                 Next <ArrowRight size={10} className="ml-1"/>
                             </button>
                         </div>
@@ -845,71 +845,22 @@
 
             const stats = useMemo(() => {
                 let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
-                
-                // Helper Sets for Unique Stacking (Client + Month for Monthly, Client + Project for Per Project)
-                const countedProjects = new Set();
-                const countedMonths = new Set();
-
-                // Sort tasks to prioritize PAID or COMPLETED items when deciding which one "counts" for the month/project
-                // This ensures if I have 5 tasks and 1 is paid, the paid one triggers the income.
-                const sortedProjects = [...data.projects].sort((a,b) => {
-                     // Rank: Paid > Completed > Active
-                     const rank = s => s === 'paid' ? 3 : s === 'completed' ? 2 : 1;
-                     return rank(b.status) - rank(a.status);
-                });
-
-                sortedProjects.forEach(p => {
-                    const client = data.clients.find(c => c.name === p.client);
-                    const mode = client?.mode || 'per_shot';
-                    const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
-                    const dateObj = parseLocalDate(dateRef || p.createdAt);
-                    if (!dateObj) return;
-
-                    // Unique Keys
-                    const monthKey = `${p.client}_${dateObj.getFullYear()}_${dateObj.getMonth()}`;
-                    const projectKey = `${p.client}_${p.projectName || 'default'}`;
-                    
+                data.projects.forEach(p => {
+                    // Logic: Work Logs DO NOT count for income, only Salary tickets or Shot/Fixed payments
                     let val = 0;
-                    let shouldAdd = false;
-
-                    // Determine Value based on Mode
-                    if (mode === 'per_shot') {
-                        val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
-                        shouldAdd = true; // Shots always stack
-                    } 
-                    else if (mode === 'per_project') {
-                         if (!countedProjects.has(projectKey)) {
-                             val = parseFloat(p.fixedPrice || 0); // Use price from task (assuming same for all tasks in project) or client default? Usually task carries the price.
-                             // Actually, for Per Project, usually the user sets the price on one task or all tasks have same price?
-                             // Let's assume the user puts the full price on the main task. 
-                             // Better: Take the MAX price found for this project so far? Or just the first one?
-                             // Simplest fix: Just count it once.
-                             countedProjects.add(projectKey);
-                             shouldAdd = true;
-                         }
-                    } 
-                    else if (mode === 'monthly') {
-                         if (!countedMonths.has(monthKey)) {
-                             val = parseFloat(client.defaultRate || 0); // Use Client Default Salary
-                             countedMonths.add(monthKey);
-                             shouldAdd = true;
-                         }
-                    }
-
-                    // Add to stats if eligible AND in current view month
-                    if (shouldAdd && isSameMonth(dateRef, currentDate)) {
-                        if (p.status === 'paid') {
-                            monthlyEarned += val;
-                        } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
-                            // If it's the current month view, add to Projected.
-                            // If it's completed and we want to track pending...
-                            if (p.status === 'completed') pendingPayment += val;
-                            else monthlyProjected += val;
-                        }
+                    if(p.payType === 'monthly_work') val = 0; // Explicitly 0 for stats
+                    else if (p.payType === 'per_shot') val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
+                    else if (p.payType === 'fixed' || p.payType === 'monthly_salary') val = parseFloat(p.fixedPrice||0);
+                    
+                    if (p.status === 'paid') {
+                        if (isSameMonth(p.paymentDate, currentDate)) monthlyEarned += val;
+                    } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
+                        if (p.deadline && isSameMonth(p.deadline, currentDate)) monthlyProjected += val;
+                        if (p.status === 'completed') pendingPayment += val;
                     }
                 });
                 return { monthlyEarned, monthlyProjected, pendingPayment };
-            }, [data.projects, data.clients, currentDate]);
+            }, [data.projects, currentDate]);
 
             // --- Views ---
             const columns = [
@@ -933,9 +884,8 @@
                     else grouped.active.push(p);
                 });
                 Object.keys(grouped).forEach(k => grouped[k].sort((a,b) => {
-                    const dateA = parseLocalDate(a.deadline) || new Date(8640000000000000);
-                    const dateB = parseLocalDate(b.deadline) || new Date(8640000000000000);
-                    return dateA - dateB;
+                    if(!a.deadline) return 1; if(!b.deadline) return -1;
+                    return new Date(a.deadline) - new Date(b.deadline);
                 }));
                 return grouped;
             }, [data.projects, filterByMonth, currentDate, viewMode]);
