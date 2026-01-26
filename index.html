@@ -54,14 +54,13 @@
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
-        const STORAGE_KEY = 'animtrack_db_v6'; 
+        const STORAGE_KEY = 'animtrack_db_v7'; 
         
         const loadData = () => {
             try {
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    // Migration: Ensure clients have modes
                     if (parsed.clients) {
                         parsed.clients = parsed.clients.map(c => ({
                             ...c,
@@ -92,23 +91,27 @@
             }
         };
 
-        // --- Date Helpers ---
-        // Normalizes a date string or object to 00:00:00 local time to avoid timezone offsets
-        const normalizeDate = (d) => {
-            if (!d) return null;
-            const date = new Date(d);
-            if (isNaN(date.getTime())) return null;
-            date.setHours(0, 0, 0, 0);
-            return date;
+        // --- Date Helpers (Strict Local Time) ---
+        // Parses YYYY-MM-DD strictly as local midnight
+        const parseLocalDate = (dateStr) => {
+            if (!dateStr) return null;
+            if (dateStr instanceof Date) return dateStr; // Already a date
+            // Handle timestamp strings from old data
+            if (dateStr.includes('T')) return new Date(dateStr); 
+            
+            const [y, m, d] = dateStr.split('-').map(Number);
+            return new Date(y, m - 1, d);
         };
 
-        // Get diff in days between two dates
         const getDayDiff = (d1, d2) => {
-            const date1 = normalizeDate(d1);
-            const date2 = normalizeDate(d2);
+            const date1 = parseLocalDate(d1);
+            const date2 = parseLocalDate(d2);
             if (!date1 || !date2) return 0;
+            // Set to midnight for fair comparison
+            date1.setHours(0,0,0,0);
+            date2.setHours(0,0,0,0);
             const diffTime = date2.getTime() - date1.getTime();
-            return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            return Math.round(diffTime / (1000 * 60 * 60 * 24)); 
         };
 
         // --- Components ---
@@ -136,7 +139,6 @@
                     const now = new Date();
                     const totalMinutes = 24 * 60;
                     const passedMinutes = now.getHours() * 60 + now.getMinutes();
-                    // Time Passed: 0% at 12 AM -> 100% at 11:59 PM (Left to Right filling)
                     setDayProgress((passedMinutes / totalMinutes) * 100);
                 };
                 updateDayProgress();
@@ -144,7 +146,6 @@
                 return () => clearInterval(interval);
             }, []);
 
-            // Holiday Logic
             const getPhHoliday = (date) => {
                 const m = date.getMonth() + 1; const d = date.getDate();
                 if (m === 1 && d === 1) return "New Year's Day";
@@ -208,13 +209,19 @@
                             </div>
                             
                             {weeks.map((week, wIdx) => {
-                                // Find items in this week using SAFE date logic
+                                // Filter items strictly by date range
+                                const weekStart = week[0]; 
+                                weekStart.setHours(0,0,0,0);
+                                const weekEnd = week[6]; 
+                                weekEnd.setHours(23,59,59,999);
+
                                 const weekItems = projects.filter(p => {
-                                   const start = normalizeDate(p.startDate) || normalizeDate(p.createdAt) || normalizeDate(new Date());
-                                   const end = normalizeDate(p.deadline) || normalizeDate(new Date());
-                                   const wStart = normalizeDate(week[0]);
-                                   const wEnd = normalizeDate(week[6]);
-                                   return start <= wEnd && end >= wStart;
+                                   const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
+                                   const end = parseLocalDate(p.deadline) || new Date();
+                                   // Set times to ensure full day overlap coverage
+                                   start.setHours(0,0,0,0);
+                                   end.setHours(23,59,59,999);
+                                   return start <= weekEnd && end >= weekStart;
                                 });
 
                                 return (
@@ -239,30 +246,30 @@
                                         </div>
                                         <div className="relative z-10 w-full pt-8 pb-2">
                                             {weekItems.map((item, idx) => {
-                                                 const start = normalizeDate(item.startDate) || normalizeDate(item.createdAt) || normalizeDate(new Date());
-                                                 const end = normalizeDate(item.deadline) || normalizeDate(new Date());
-                                                 const wStart = normalizeDate(week[0]);
+                                                 const start = parseLocalDate(item.startDate || item.createdAt);
+                                                 const end = parseLocalDate(item.deadline) || start;
+                                                 const wStart = week[0];
 
-                                                 // Calculate column span safely
-                                                 const daysSinceWeekStart = getDayDiff(wStart, start);
-                                                 const colStart = Math.max(0, daysSinceWeekStart);
+                                                 // Calculate column placement relative to THIS week
+                                                 const diffStart = getDayDiff(wStart, start);
+                                                 const diffEnd = getDayDiff(wStart, end);
                                                  
-                                                 const projectDuration = getDayDiff(start, end) + 1; // +1 to include start day
-                                                 // Adjust duration if it started before this week
-                                                 const visibleDuration = projectDuration - (daysSinceWeekStart < 0 ? Math.abs(daysSinceWeekStart) : 0);
+                                                 // Clamp to 0-6
+                                                 const colStart = Math.max(0, diffStart);
+                                                 const colEnd = Math.min(6, diffEnd);
                                                  
-                                                 // Clamp to week width (7 days)
-                                                 const colSpan = Math.min(visibleDuration, 7 - colStart);
+                                                 // If item is completely out of this week visually (shouldn't happen due to filter, but safe guard)
+                                                 if (colStart > 6 || colEnd < 0) return null;
 
-                                                 if (colSpan <= 0) return null;
-
+                                                 const span = (colEnd - colStart) + 1;
+                                                 
                                                  return (
                                                      <div key={item.id} 
                                                           className="absolute h-5 px-1 mt-1 z-10"
                                                           style={{
                                                               left: `${(colStart / 7) * 100}%`,
-                                                              width: `${(colSpan / 7) * 100}%`,
-                                                              top: `${idx * 22}px` // Simple stacking based on array index
+                                                              width: `${(span / 7) * 100}%`,
+                                                              top: `${idx * 22}px` // Stack from top down inside the pt-8 padding area
                                                           }}
                                                      >
                                                          <button onClick={()=>onEdit(item)} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
@@ -288,22 +295,22 @@
             let val = 0;
             let label = '';
             
-            if (mode === 'per_shot') {
+            if (project.payType === 'monthly_work') {
                 val = (project.shotRate || 0) * (project.shotCount || 0);
+                label = '(Est. Value - Included in Salary)';
+            } else if (project.payType === 'monthly_salary') {
+                val = project.fixedPrice || 0;
+                label = '(Monthly Salary)';
             } else if (mode === 'per_project') {
                 val = project.fixedPrice || 0;
-                label = '(Project Total)';
-            } else if (mode === 'monthly') {
-                val = client?.defaultRate || 0;
-                label = '(Monthly Salary)';
+            } else {
+                val = (project.shotRate || 0) * (project.shotCount || 0);
             }
             
             const isActiveWorking = project.isWorkingOn;
-            
-            // Normalized Dates for accurate deadline calculation
-            const today = normalizeDate(new Date());
-            const deadline = normalizeDate(project.deadline);
-            const start = normalizeDate(project.startDate) || normalizeDate(project.createdAt) || today;
+            const today = parseLocalDate(new Date().toISOString().split('T')[0]);
+            const deadline = parseLocalDate(project.deadline);
+            const start = parseLocalDate(project.startDate) || parseLocalDate(project.createdAt) || today;
             
             let isOverdue = false;
             let timeProg = 0;
@@ -315,14 +322,9 @@
                 const elapsedDays = getDayDiff(start, today);
                 const remainingDays = getDayDiff(today, deadline);
 
-                // Progress Calculation
                 if (totalDays > 0) {
                     timeProg = Math.max(0, Math.min(100, (elapsedDays / totalDays) * 100));
-                } else if (elapsedDays > 0) {
-                    timeProg = 100; // Started but no duration or deadline passed
-                } else {
-                    timeProg = 0; // Starts in future
-                }
+                } else if (elapsedDays > 0) timeProg = 100;
 
                 if (remainingDays < 0) {
                     isOverdue = true;
@@ -363,24 +365,21 @@
                             {project.status === 'completed' ? 'Done' : project.status}
                         </div>
                         <div className="text-right">
-                             <span className={`text-xs font-mono font-bold ${mode === 'monthly' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                                {mode === 'monthly' ? 'Covered' : `$${val.toLocaleString()}`}
+                             <span className={`text-xs font-mono font-bold ${project.payType === 'monthly_work' ? 'text-purple-400' : 'text-emerald-400'}`}>
+                                {project.payType === 'monthly_work' ? 'Covered' : `$${val.toLocaleString()}`}
                             </span>
                             {label && <div className="text-[9px] text-gray-500">{label}</div>}
                         </div>
                     </div>
                     
                     <div className="space-y-1.5">
-                        {/* Work Progress */}
                         <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden mb-1">
                             <div className="bg-blue-500 h-1 rounded-full" style={{width: `${project.progress||0}%`}}></div>
                         </div>
                         
-                        {/* Time Elapsed / Deadline Bar */}
                         {deadline && (
                             <div>
                                 <div className="w-full bg-gray-700 rounded-full h-1 overflow-hidden relative">
-                                    {/* Base Bar */}
                                     <div className={`${timeColor} h-1 rounded-full transition-all duration-500`} style={{width: `${timeProg}%`}}></div>
                                 </div>
                                 <div className="flex justify-between items-center pt-1">
@@ -849,23 +848,25 @@
 
             const isSameMonth = (dStr, target) => {
                 if (!dStr) return false;
-                const d = new Date(dStr);
-                return d.getMonth() === target.getMonth() && d.getFullYear() === target.getFullYear();
+                const date = parseLocalDate(dStr);
+                return date.getMonth() === target.getMonth() && date.getFullYear() === target.getFullYear();
             };
 
             const stats = useMemo(() => {
                 let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
                 data.projects.forEach(p => {
-                    // Logic: Work Logs DO NOT count for income, only Salary tickets or Shot/Fixed payments
                     let val = 0;
-                    if(p.payType === 'monthly_work') val = 0; // Explicitly 0 for stats
+                    // Strict Payment Logic
+                    if(p.payType === 'monthly_work') val = 0; // Explicitly 0
                     else if (p.payType === 'per_shot') val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
                     else if (p.payType === 'fixed' || p.payType === 'monthly_salary') val = parseFloat(p.fixedPrice||0);
                     
+                    const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
+
                     if (p.status === 'paid') {
-                        if (isSameMonth(p.paymentDate, currentDate)) monthlyEarned += val;
+                        if (isSameMonth(dateRef, currentDate)) monthlyEarned += val;
                     } else if (['layout', 'blocking', 'splining', 'polishing', 'completed', 'inquiry'].includes(p.status)) {
-                        if (p.deadline && isSameMonth(p.deadline, currentDate)) monthlyProjected += val;
+                        if (isSameMonth(dateRef, currentDate)) monthlyProjected += val;
                         if (p.status === 'completed') pendingPayment += val;
                     }
                 });
