@@ -195,6 +195,54 @@
                 }
             };
 
+            // Render helper for weeks to avoid duplicating logic
+            const renderWeek = (week) => {
+                const weekStart = parseLocalDate(week[0]); weekStart.setHours(0,0,0,0);
+                const weekEnd = parseLocalDate(week[6]); weekEnd.setHours(23,59,59,999);
+
+                // 1. Filter Projects for this Week
+                const weekItems = projects.filter(p => {
+                    const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
+                    const end = parseLocalDate(p.deadline) || new Date();
+                    start.setHours(0,0,0,0);
+                    end.setHours(23,59,59,999);
+                    return start <= weekEnd && end >= weekStart;
+                });
+
+                // 2. Sort: Earliest Start Date first (keeps bottom-up stack consistent)
+                weekItems.sort((a,b) => {
+                    const s1 = parseLocalDate(a.startDate || a.createdAt);
+                    const s2 = parseLocalDate(b.startDate || b.createdAt);
+                    if (s1.getTime() !== s2.getTime()) return s1 - s2;
+                    return a.id.localeCompare(b.id);
+                });
+
+                // 3. Assign Lanes (Simple Packing)
+                const itemsWithPos = weekItems.map((item, idx) => {
+                    const start = parseLocalDate(item.startDate || item.createdAt);
+                    const end = parseLocalDate(item.deadline) || start;
+                    
+                    const diffStart = getDayDiff(weekStart, start);
+                    const diffEnd = getDayDiff(weekStart, end);
+                    const colStart = Math.max(0, diffStart);
+                    const colEnd = Math.min(6, diffEnd);
+                    
+                    if (colStart > 6 || colEnd < 0) return null;
+                    const span = (colEnd - colStart) + 1;
+                    
+                    // Simple vertical index based on sorted list to maintain stability
+                    return { ...item, colStart, span, vIndex: idx };
+                }).filter(Boolean);
+
+                const maxIndex = itemsWithPos.length > 0 ? Math.max(...itemsWithPos.map(i => i.vIndex)) : -1;
+                // Base Height (100px) + (NumItems * 24px) + Padding
+                const rowHeight = Math.max(120, 50 + ((maxIndex + 1) * 24)); 
+
+                return { week, items: itemsWithPos, rowHeight };
+            };
+
+            const renderedWeeks = weeks.map(renderWeek);
+
             return (
                 <div className="bg-gray-900 border border-gray-800 rounded-xl shadow-xl overflow-hidden flex flex-col h-full">
                     <div className="flex-1 overflow-auto custom-scrollbar bg-gray-900">
@@ -205,92 +253,45 @@
                                 ))}
                             </div>
                             
-                            {weeks.map((week, wIdx) => {
-                                // Filter and Sort items
-                                const weekStart = parseLocalDate(week[0]);
-                                const weekEnd = parseLocalDate(week[6]);
-                                
-                                const weekItems = projects.filter(p => {
-                                   const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
-                                   const end = parseLocalDate(p.deadline) || new Date();
-                                   start.setHours(0,0,0,0);
-                                   end.setHours(23,59,59,999);
-                                   return start <= weekEnd && end >= weekStart;
-                                });
-
-                                // Sort: Deadline first, then Start Date
-                                weekItems.sort((a, b) => {
-                                    const d1 = parseLocalDate(a.deadline) || new Date(9999, 11, 31);
-                                    const d2 = parseLocalDate(b.deadline) || new Date(9999, 11, 31);
-                                    if (d1.getTime() !== d2.getTime()) return d1 - d2;
-                                    const s1 = parseLocalDate(a.startDate || a.createdAt);
-                                    const s2 = parseLocalDate(b.startDate || b.createdAt);
-                                    return s1 - s2;
-                                });
-
-                                // Dynamic Row Height for centering
-                                const itemHeight = 22;
-                                const contentHeight = weekItems.length * itemHeight;
-                                const minRowHeight = 150;
-                                const rowHeight = Math.max(minRowHeight, contentHeight + 60);
-                                const verticalStart = Math.max(30, (rowHeight - contentHeight) / 2); // Center vertically, but respect header
-
-                                return (
-                                    <div key={wIdx} className="relative border-b border-gray-800" style={{ height: `${rowHeight}px` }}>
-                                        <div className="grid grid-cols-7 absolute inset-0 z-0">
-                                            {week.map((day, dIdx) => {
-                                                const isToday = day.toDateString() === new Date().toDateString();
-                                                const isPast = day < new Date(new Date().setHours(0,0,0,0));
-                                                const holiday = getPhHoliday(day);
-                                                return (
-                                                    <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
-                                                         onClick={()=>setActiveHoliday(holiday ? {date: day.toISOString(), name: holiday} : null)}>
-                                                        {isToday && <div className="absolute inset-y-0 left-0 bg-blue-500/10 border-r border-blue-500/30 transition-all duration-1000" style={{width:`${dayProgress}%`}}/>}
-                                                        {holiday && <Star size={24} className="absolute top-1 right-1 opacity-20 text-yellow-500" fill="currentColor"/>}
-                                                        <span className={`relative z-10 text-xs font-bold ${isToday?'text-blue-400 text-lg':isPast?'text-gray-600':'text-gray-400'}`}>{day.getDate()}</span>
-                                                        {holiday && activeHoliday?.date === day.toISOString() && (
-                                                            <div className="absolute top-6 left-0 right-0 z-50 bg-gray-800 border border-yellow-500/50 text-[9px] p-1 text-center rounded text-white shadow-xl fade-in">{holiday}</div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        
-                                        {/* Vertically Centered Task Bars */}
-                                        <div className="relative z-10 w-full pointer-events-none"> 
-                                            {weekItems.map((item, idx) => {
-                                                 const start = parseLocalDate(item.startDate || item.createdAt);
-                                                 const end = parseLocalDate(item.deadline) || start;
-                                                 const wStart = parseLocalDate(week[0]);
-                                                 
-                                                 const diffStart = getDayDiff(wStart, start);
-                                                 const diffEnd = getDayDiff(wStart, end);
-                                                 const colStart = Math.max(0, diffStart);
-                                                 const colEnd = Math.min(6, diffEnd);
-                                                 
-                                                 if (colStart > 6 || colEnd < 0) return null;
-                                                 
-                                                 const span = (colEnd - colStart) + 1;
-                                                 
-                                                 return (
-                                                     <div key={item.id} 
-                                                          className="absolute h-5 px-1 z-10 pointer-events-auto"
-                                                          style={{
-                                                              left: `${(colStart / 7) * 100}%`,
-                                                              width: `${(span / 7) * 100}%`,
-                                                              top: `${verticalStart + (idx * 22)}px` // Centered Vertical Stacking
-                                                          }}
-                                                     >
-                                                         <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
-                                                             {item.name}
-                                                         </button>
-                                                     </div>
-                                                 )
-                                            })}
-                                        </div>
+                            {renderedWeeks.map((weekData, wIdx) => (
+                                <div key={wIdx} className="relative border-b border-gray-800" style={{ height: `${weekData.rowHeight}px` }}>
+                                    <div className="grid grid-cols-7 absolute inset-0 z-0">
+                                        {weekData.week.map((day, dIdx) => {
+                                            const isToday = day.toDateString() === new Date().toDateString();
+                                            const isPast = day < new Date(new Date().setHours(0,0,0,0));
+                                            const holiday = getPhHoliday(day);
+                                            return (
+                                                <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
+                                                     onClick={()=>setActiveHoliday(holiday ? {date: day.toISOString(), name: holiday} : null)}>
+                                                    {isToday && <div className="absolute inset-y-0 left-0 bg-blue-500/10 border-r border-blue-500/30 transition-all duration-1000" style={{width:`${dayProgress}%`}}/>}
+                                                    {holiday && <Star size={24} className="absolute top-1 right-1 opacity-20 text-yellow-500" fill="currentColor"/>}
+                                                    <span className={`relative z-10 text-xs font-bold ${isToday?'text-blue-400 text-lg':isPast?'text-gray-600':'text-gray-400'}`}>{day.getDate()}</span>
+                                                    {holiday && activeHoliday?.date === day.toISOString() && (
+                                                        <div className="absolute top-6 left-0 right-0 z-50 bg-gray-800 border border-yellow-500/50 text-[9px] p-1 text-center rounded text-white shadow-xl fade-in">{holiday}</div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                );
-                            })}
+                                    {/* Task Bars - Bottom Up Stacking */}
+                                    <div className="relative z-10 w-full h-full pointer-events-none"> 
+                                        {weekData.items.map((item) => (
+                                             <div key={item.id} 
+                                                  className="absolute h-5 px-1 z-10 pointer-events-auto"
+                                                  style={{
+                                                      left: `${(item.colStart / 7) * 100}%`,
+                                                      width: `${(item.span / 7) * 100}%`,
+                                                      bottom: `${item.vIndex * 24 + 4}px` // Anchored to bottom, moves up
+                                                  }}
+                                             >
+                                                 <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
+                                                     {item.name}
+                                                 </button>
+                                             </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -807,7 +808,7 @@
             const [viewMode, setViewMode] = useState('board'); 
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isListManagerOpen, setIsListManagerOpen] = useState(false);
-            const [isArchiveOpen, setIsArchiveOpen] = useState(false); // Archive State
+            const [isArchiveOpen, setIsArchiveOpen] = useState(false); 
             const [editingProject, setEditingProject] = useState(null);
             const [viewingProject, setViewingProject] = useState(null);
             const [currentDate, setCurrentDate] = useState(new Date());
@@ -874,26 +875,24 @@
                     const client = data.clients.find(c => c.name === project.client);
                     const isMonthly = client?.mode === 'monthly';
 
-                    // BATCH UPDATE: If monthly client & paid, mark ALL tasks for this client in this month as paid
+                    // BATCH UPDATE: If monthly client & paid, mark ALL COMPLETED tasks for this client in this month as paid
                     if (newStatus === 'paid' && isMonthly) {
-                         const targetDate = new Date(project.deadline || project.createdAt);
+                         const targetDate = parseLocalDate(project.deadline || project.createdAt);
                          const targetMonth = targetDate.getMonth();
                          const targetYear = targetDate.getFullYear();
 
                          const updatedProjects = data.projects.map(p => {
-                            if (p.client === project.client && p.status !== 'paid') {
-                                const pDate = new Date(p.deadline || p.createdAt);
+                            if (p.client === project.client && p.status === 'completed') {
+                                const pDate = parseLocalDate(p.deadline || p.createdAt);
                                 if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
                                     return { ...p, status: 'paid', paymentDate: todayStr };
                                 }
                             }
-                            // Also update the one dragged
                             if (p.id === project.id) return { ...p, ...updates };
                             return p;
                          });
                          setData(prev => ({ ...prev, projects: updatedProjects }));
                     } else {
-                        // Standard Single Update
                         setData(prev => ({
                             ...prev,
                             projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p)
@@ -926,7 +925,6 @@
                 let monthlyEarned = 0, monthlyProjected = 0, pendingPayment = 0;
                 
                 // Track Unique Groups to avoid double counting
-                // Key: Type_Identifier -> Value: { rate: number, statusWeight: number }
                 const groups = {}; 
 
                 data.projects.forEach(p => {
@@ -934,11 +932,9 @@
                     const mode = client?.mode || 'per_shot';
                     const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
                     
-                    // Filter by current view month
                     if (!isSameMonth(dateRef, currentDate)) return;
 
                     if (mode === 'per_shot') {
-                        // Per Shot: Always counts individually
                         const val = (parseFloat(p.shotRate||0) * parseInt(p.shotCount||0));
                         if (p.status === 'paid') monthlyEarned += val;
                         else if (p.status === 'completed') pendingPayment += val;
@@ -961,11 +957,9 @@
                             groups[key] = { rate: rate, statusWeight: 0 }; 
                         }
                         
-                        if (mode === 'per_project' && rate > groups[key].rate) {
-                            groups[key].rate = rate;
-                        }
+                        if (mode === 'per_project' && rate > groups[key].rate) groups[key].rate = rate;
 
-                        // Determine Weight: 3=Paid, 2=Pending/Done, 1=Active
+                        // Priority: Paid > Pending > Active
                         let weight = 1; 
                         if (p.status === 'paid') weight = 3;
                         else if (p.status === 'completed') weight = 2;
@@ -977,7 +971,6 @@
                     }
                 });
 
-                // Sum up groups
                 Object.values(groups).forEach(g => {
                     if (g.statusWeight === 3) monthlyEarned += g.rate;
                     else if (g.statusWeight === 2) pendingPayment += g.rate;
