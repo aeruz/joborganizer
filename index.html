@@ -52,7 +52,7 @@
             ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
-            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, FolderOpen, RotateCcw, Cloud, CloudOff, Loader2
+            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, FolderOpen, RotateCcw, Cloud, CloudOff, Loader2, LogOut
         } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
@@ -62,12 +62,66 @@
             onSnapshot, setDoc, getDoc, serverTimestamp, writeBatch 
         } from 'firebase/firestore';
 
+        // --- Local Storage Helper (Smart Migration) ---
+        // Checks v9, then v8, then v7 to ensure data isn't lost on update
+        const CURRENT_DB_VERSION = 'animtrack_db_v9';
+        const LEGACY_VERSIONS = ['animtrack_db_v8', 'animtrack_db_v7', 'animtrack_db_v6'];
+        
+        const loadData = () => {
+            try {
+                // Try current version first
+                let saved = localStorage.getItem(CURRENT_DB_VERSION);
+                
+                // If not found, try legacy versions
+                if (!saved) {
+                    for (const key of LEGACY_VERSIONS) {
+                        saved = localStorage.getItem(key);
+                        if (saved) {
+                            console.log(`Migrating data from ${key} to ${CURRENT_DB_VERSION}`);
+                            localStorage.setItem(CURRENT_DB_VERSION, saved); // Migrate forward
+                            break;
+                        }
+                    }
+                }
+
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Ensure clients have correct schema
+                    if (parsed.clients) {
+                        parsed.clients = parsed.clients.map(c => ({
+                            ...c,
+                            mode: c.mode || 'per_shot',
+                            defaultRate: c.defaultRate || 0,
+                            payDay: c.payDay || 25
+                        }));
+                    }
+                    return parsed;
+                }
+            } catch (e) {
+                console.error("Data load error", e);
+            }
+            return {
+                projects: [],
+                clients: [
+                    { name: 'Example Studio', mode: 'per_shot', defaultRate: 150, projects: ['Season 1'] },
+                    { name: 'Retainer Client', mode: 'monthly', defaultRate: 2500, payDay: 25, projects: ['Commercials'] }
+                ]
+            };
+        };
+
+        const saveData = (data) => {
+            try {
+                localStorage.setItem(CURRENT_DB_VERSION, JSON.stringify(data));
+            } catch (e) {
+                console.error("Save error", e);
+            }
+        };
+
         // --- Date Helpers (Strict Local Time) ---
         const parseLocalDate = (dateStr) => {
             if (!dateStr) return null;
             if (dateStr instanceof Date) return dateStr; 
             if (dateStr.includes('T')) return new Date(dateStr); 
-            
             const [y, m, d] = dateStr.split('-').map(Number);
             return new Date(y, m - 1, d);
         };
@@ -113,43 +167,39 @@
                 setIsTesting(true);
                 try {
                     let cleanStr = configStr.trim();
-                    // Strip variable declarations
                     if (cleanStr.includes('=')) cleanStr = cleanStr.substring(cleanStr.indexOf('=') + 1).trim();
-                    // Strip trailing semicolon
                     if (cleanStr.endsWith(';')) cleanStr = cleanStr.slice(0, -1);
                     
                     let config;
                     try {
-                        // Attempt strict JSON parse first
                         config = JSON.parse(cleanStr);
                     } catch (e) {
-                        // Targeted Fix: Regex only known Firebase keys to avoid breaking values like "1:..."
                         const knownKeys = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'];
                         let jsonStr = cleanStr;
-                        
                         knownKeys.forEach(key => {
-                            // Replace "key:" with ""key":" ensuring we don't touch values
-                            // Matches key at start of line or after whitespace/brace/comma
                             const regex = new RegExp(`(^|\\s|\\{|,)\\s*(${key})\\s*:`, 'g');
                             jsonStr = jsonStr.replace(regex, `$1"$2":`);
                         });
-
-                        // Replace single quotes with double quotes for values
-                        jsonStr = jsonStr.replace(/'/g, '"');
-                        // Remove trailing commas
-                        jsonStr = jsonStr.replace(/,(\s*})/g, '$1');
-
+                        jsonStr = jsonStr.replace(/'/g, '"').replace(/,(\s*})/g, '$1');
                         config = JSON.parse(jsonStr);
                     }
 
                     if (!config || !config.apiKey || !config.projectId) throw new Error("Missing apiKey or projectId");
 
-                    // TEST CONNECTION
-                    const app = initializeApp(config, "testApp"); // Temporary app instance
-                    const auth = getAuth(app);
-                    await signInAnonymously(auth); // Test Auth
+                    // Safe Initialization Check
+                    try {
+                        // Check if app already exists to avoid duplicate error
+                        const app = initializeApp(config, "testApp_" + Date.now()); 
+                        const auth = getAuth(app);
+                        await signInAnonymously(auth);
+                    } catch (fbError) {
+                        if (fbError.code === 'app/duplicate-app') {
+                            // Ignore duplicate app error, it means config is likely valid/already used
+                        } else {
+                            throw fbError;
+                        }
+                    }
                     
-                    // If successful, save and proceed
                     localStorage.setItem('animtrack_fb_config', JSON.stringify(config));
                     onSave(config);
                     
@@ -157,9 +207,9 @@
                     console.error(e);
                     let msg = "Invalid Config.";
                     if (e.code === 'auth/api-key-not-valid') msg = "Invalid API Key.";
-                    if (e.code === 'auth/admin-restricted-operation') msg = "Anonymous Auth not enabled in Firebase Console.";
-                    if (e.message.includes('JSON')) msg = "Format Error. Please ensure the config is correct.";
-                    setError(`${msg} (${e.message})`);
+                    if (e.code === 'auth/admin-restricted-operation') msg = "Anonymous Auth not enabled.";
+                    if (e.message && e.message.includes('JSON')) msg = "Format Error.";
+                    setError(`${msg} ${e.message ? '('+e.message+')' : ''}`);
                     setIsTesting(false);
                 }
             };
@@ -171,7 +221,7 @@
                             <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg"><Cloud className="text-white w-8 h-8" /></div>
                         </div>
                         <h1 className="text-2xl font-bold text-center text-white mb-2">Connect Cloud</h1>
-                        <p className="text-gray-400 text-center text-sm mb-6">Paste your Firebase Config object to sync data.</p>
+                        <p className="text-gray-400 text-center text-sm mb-6">Paste your Firebase Config to sync.</p>
                         <div className="space-y-4">
                             <textarea 
                                 className="w-full h-32 bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs text-gray-300 font-mono focus:ring-2 focus:ring-blue-600 outline-none custom-scrollbar" 
@@ -187,9 +237,12 @@
                             >
                                 {isTesting ? <><Loader2 className="animate-spin mr-2" size={16}/> Connecting...</> : 'Connect & Sync'}
                             </button>
-                            <p className="text-[10px] text-gray-600 text-center">
-                                Tip: Make sure <b>Anonymous Authentication</b> and <b>Firestore</b> are enabled in your Firebase Console.
-                            </p>
+                            <button 
+                                onClick={() => onSave(null)} // Skip
+                                className="w-full py-2 text-gray-500 hover:text-white text-xs font-medium"
+                            >
+                                Continue Offline
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -200,7 +253,6 @@
             const [dayProgress, setDayProgress] = useState(0);
             const [activeHoliday, setActiveHoliday] = useState(null); 
             
-            // Global Lane Assignment for Stability
             const assignments = useMemo(() => {
                 const sorted = [...projects].sort((a, b) => {
                     const s1 = parseLocalDate(a.startDate || a.createdAt);
@@ -303,7 +355,6 @@
                                    return start <= wEnd && end >= wStart;
                                 });
 
-                                // Calculate Dynamic Height
                                 const maxLane = weekItems.length > 0 ? Math.max(...weekItems.map(i => assignments[i.id]||0)) : 0;
                                 const rowHeight = Math.max(150, 40 + ((maxLane + 1) * 24));
 
@@ -334,12 +385,9 @@
                                                  const wStart = parseLocalDate(week[0]);
                                                  const colStart = Math.max(0, getDayDiff(wStart, start));
                                                  const colEnd = Math.min(6, getDayDiff(wStart, end));
-                                                 
                                                  if (colStart > 6 || colEnd < 0) return null;
-                                                 
                                                  const span = (colEnd - colStart) + 1;
                                                  const lane = assignments[item.id] || idx;
-                                                 
                                                  return (
                                                      <div key={item.id} 
                                                           className="absolute h-5 px-1 z-10 pointer-events-auto"
@@ -475,14 +523,8 @@
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
                     <div className="relative w-full max-w-2xl bg-gray-900 h-full border-l border-gray-800 shadow-2xl flex flex-col">
                         <div className="p-4 border-b border-gray-800 bg-gray-900 z-10 flex justify-between items-start">
-                            <div>
-                                <h2 className="text-xl font-bold text-white">{project.name}</h2>
-                                <p className="text-gray-400 text-sm">{project.client}</p>
-                            </div>
-                            <div className="flex gap-2">
-                                <button onClick={onEdit}><Edit2 className="text-gray-400 hover:text-white"/></button>
-                                <button onClick={onClose}><X className="text-gray-400 hover:text-white"/></button>
-                            </div>
+                            <div><h2 className="text-xl font-bold text-white">{project.name}</h2><p className="text-gray-400 text-sm">{project.client}</p></div>
+                            <div className="flex gap-2"><button onClick={onEdit}><Edit2 className="text-gray-400 hover:text-white"/></button><button onClick={onClose}><X className="text-gray-400 hover:text-white"/></button></div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
                             <div className="bg-gray-800 p-4 rounded-xl border border-gray-700">
@@ -523,23 +565,24 @@
             );
         };
 
-        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, allData, onImport }) => {
+        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, allData, onImport, user }) => {
             const [activeTab, setActiveTab] = useState('clients');
             const [clients, setClients] = useState(initialClients);
             const [form, setForm] = useState({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] });
             const [projectInput, setProjectInput] = useState('');
             const [editIdx, setEditIdx] = useState(-1);
             const fileRef = useRef(null);
-
+            
             useEffect(() => { setClients(initialClients); }, [initialClients, isOpen]);
             if (!isOpen) return null;
-
+            
             const addProjectToClient = () => { if(projectInput) { setForm({...form, projects: [...(form.projects||[]), projectInput]}); setProjectInput(''); } };
             const removeProjectFromClient = (idx) => { setForm({...form, projects: form.projects.filter((_, i) => i !== idx)}); };
             const saveClient = () => { if(!form.name) return; const newClients = [...clients]; if(editIdx > -1) newClients[editIdx] = form; else newClients.push(form); setClients(newClients); onUpdateLists(newClients); setForm({ name: '', mode: 'per_shot', defaultRate: 0, payDay: 25, projects: [] }); setEditIdx(-1); };
             const deleteClient = (idx) => { if(confirm('Delete?')) { const n = clients.filter((_,i)=>i!==idx); setClients(n); onUpdateLists(n); } };
             const exportData = () => { const blob = new Blob([JSON.stringify(allData,null,2)], {type : 'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `animtrack_backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); };
             const importData = (e) => { const file = e.target.files[0]; if(!file) return; const r = new FileReader(); r.onload = (ev) => { try { const d = JSON.parse(ev.target.result); if(onImport(d)) { alert('Imported!'); onClose(); } else alert('Invalid file.'); } catch(err) { alert('Error parsing'); } }; r.readAsText(file); };
+            const disconnectCloud = () => { localStorage.removeItem('animtrack_fb_config'); window.location.reload(); };
 
             return (
                 <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -549,7 +592,6 @@
                              <button onClick={()=>setActiveTab('data')} className={`flex-1 py-4 text-sm font-bold ${activeTab==='data'?'bg-gray-800 text-white border-b-2 border-emerald-500':'text-gray-400'}`}>Data Backup</button>
                              <button onClick={onClose} className="px-6 text-gray-400 hover:text-white"><X/></button>
                         </div>
-
                         <div className="flex-1 overflow-hidden min-h-0">
                             {activeTab === 'clients' ? (
                                 <div className="flex flex-col sm:flex-row h-full">
@@ -586,111 +628,9 @@
                                         <button onClick={()=>fileRef.current.click()} className="flex flex-col items-center p-6 bg-gray-800 border border-gray-700 rounded-xl hover:border-blue-500 transition group"><Upload className="mb-2 text-blue-500 group-hover:scale-110"/><span className="text-white font-bold">Import</span></button>
                                         <input type="file" ref={fileRef} className="hidden" accept=".json" onChange={importData} />
                                     </div>
+                                    {user && <div className="border-t border-gray-800 pt-6 w-full max-w-xs"><button onClick={disconnectCloud} className="w-full flex items-center justify-center text-red-400 hover:text-red-300 text-sm"><LogOut size={16} className="mr-2"/> Disconnect Cloud</button></div>}
                                 </div>
                             )}
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        const ProjectModal = ({ isOpen, onClose, onSave, onDelete, initialData, clients }) => {
-            const [form, setForm] = useState({});
-            const [selectedClient, setSelectedClient] = useState(null);
-
-            useEffect(() => {
-                if(isOpen) {
-                    if(initialData) {
-                        setForm({...initialData});
-                        const c = clients.find(cl => cl.name === initialData.client);
-                        setSelectedClient(c);
-                    } else {
-                        const defC = clients[0];
-                        setSelectedClient(defC);
-                        let defPayType = 'per_shot';
-                        let defPrice = 0;
-                        if(defC) {
-                            if(defC.mode === 'per_project') defPayType = 'fixed';
-                            if(defC.mode === 'monthly') defPayType = 'monthly_work'; 
-                            defPrice = defC.defaultRate || 0;
-                        }
-                        
-                        setForm({
-                            name: '', client: defC?.name || '', projectName: '',
-                            payType: defPayType,
-                            status: 'inquiry',
-                            fixedPrice: (defPayType==='fixed') ? defPrice : 0,
-                            shotRate: (defPayType==='per_shot') ? defPrice : 0,
-                            shotCount: 1,
-                            startDate: getLocalISOString(new Date()),
-                            deadline: '',
-                            progress: 0,
-                            notes: '',
-                            isWorkingOn: false
-                        });
-                    }
-                }
-            }, [isOpen, initialData, clients]);
-
-            const handleClientChange = (e) => {
-                const name = e.target.value;
-                const c = clients.find(cl => cl.name === name);
-                setSelectedClient(c);
-                let pt = 'per_shot';
-                if(c.mode === 'per_project') pt = 'fixed';
-                if(c.mode === 'monthly') pt = 'monthly_work';
-                setForm({ ...form, client: name, projectName: '', payType: pt, fixedPrice: (pt === 'fixed') ? c.defaultRate : 0, shotRate: (pt === 'per_shot') ? c.defaultRate : 0 });
-            }
-
-            if(!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-                    <div className="bg-gray-900 border border-gray-700 w-full max-w-lg rounded-2xl p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar">
-                        <div className="flex justify-between items-center mb-6"><h2 className="text-xl font-bold text-white">{initialData?'Edit':'New'} Task</h2><button onClick={onClose}><X/></button></div>
-                        <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="text-xs text-gray-400">Client</label><select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.client} onChange={handleClientChange}>{clients.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
-                                <div><label className="text-xs text-gray-400">Project</label><select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.projectName} onChange={e=>setForm({...form, projectName:e.target.value})}><option value="">Select...</option>{(selectedClient?.projects || []).map(p => <option key={p} value={p}>{p}</option>)}</select></div>
-                            </div>
-                            <div className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-                                {selectedClient?.mode === 'monthly' ? (
-                                    <div className="space-y-3">
-                                        <div className="flex bg-gray-900 p-1 rounded">
-                                            <button type="button" onClick={()=>setForm({...form, payType:'monthly_work', fixedPrice:0})} className={`flex-1 py-1 text-xs rounded ${form.payType==='monthly_work'?'bg-purple-600 text-white':'text-gray-400'}`}>Log Work (Task)</button>
-                                            <button type="button" onClick={()=>setForm({...form, payType:'monthly_salary', fixedPrice:selectedClient.defaultRate})} className={`flex-1 py-1 text-xs rounded ${form.payType==='monthly_salary'?'bg-emerald-600 text-white':'text-gray-400'}`}>Log Salary (Payment)</button>
-                                        </div>
-                                        {form.payType === 'monthly_salary' ? (
-                                            <div className="text-center"><p className="text-xs text-gray-500">Monthly Payment Amount</p><div className="text-xl font-bold text-emerald-400">${form.fixedPrice}</div></div>
-                                        ) : (
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <input type="number" placeholder="Shot Rate (Ref)" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} />
-                                                <input type="number" placeholder="Count" className="bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} />
-                                                <div className="col-span-2 text-[10px] text-center text-gray-500">Value tracks internal stats only. Income comes from Salary logs.</div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ) : selectedClient?.mode === 'per_project' ? (
-                                    <div><label className="text-xs text-gray-400">Fixed Project Price</label><input type="number" className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white" value={form.fixedPrice} onChange={e=>setForm({...form, fixedPrice:e.target.value})} /></div>
-                                ) : (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-xs text-gray-400">Shot Rate</label><input type="number" className="bg-gray-900 border border-gray-700 rounded p-2 text-white w-full" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})} /></div>
-                                        <div><label className="text-xs text-gray-400">Shot Count</label><input type="number" className="bg-gray-900 border border-gray-700 rounded p-2 text-white w-full" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})} /></div>
-                                    </div>
-                                )}
-                            </div>
-                            <input type="text" placeholder="Task Name" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><label className="text-xs text-gray-400">Start Date</label><input type="date" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
-                                <div><label className="text-xs text-gray-400">{form.status==='paid'?'Paid Date':'Deadline'}</label><input type="date" className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white text-xs" value={form.status==='paid'?form.paymentDate:form.deadline} onChange={e=>form.status==='paid'?setForm({...form, paymentDate:e.target.value}):setForm({...form, deadline:e.target.value})} /></div>
-                            </div>
-                            <div><label className="text-xs text-gray-400">Stage</label><select className="w-full bg-gray-800 border border-gray-700 rounded p-2 text-white" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>
-                                <option value="inquiry">Inquiry</option><option value="layout">Layout</option><option value="blocking">Blocking</option><option value="splining">Splining</option><option value="polishing">Polish</option><option value="completed">Done (Pending)</option><option value="paid">Paid</option>
-                            </select></div>
-                            <div className="flex justify-between pt-4 border-t border-gray-800">
-                                {initialData ? <button onClick={()=>onDelete(initialData.id)} className="text-red-400 hover:text-red-300 text-sm">Delete</button> : <div/>}
-                                <button onClick={()=>onSave(form)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded font-bold">Save</button>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -710,7 +650,9 @@
                 
                 projects.forEach(p => {
                     const client = clients.find(c => c.name === p.client);
-                    const mode = client?.mode || 'per_shot';
+                    if (!client) return; // Safety check
+                    
+                    const mode = client.mode || 'per_shot';
                     const dateRef = p.status === 'paid' ? p.paymentDate : p.deadline;
                     const dateObj = parseLocalDate(dateRef || p.createdAt);
                     if(!dateObj || dateObj.getFullYear() !== new Date().getFullYear()) return;
@@ -802,7 +744,6 @@
             const [showStats, setShowStats] = useState(false); 
             const [user, setUser] = useState(null);
 
-            // 1. Check for Config & Init Firebase
             useEffect(() => {
                 const storedConfig = localStorage.getItem('animtrack_fb_config');
                 if (storedConfig) {
@@ -820,24 +761,27 @@
                 setLoading(false);
             }, []);
 
-            // 2. Auth & Data Listeners
             useEffect(() => {
                 if (!isConfigured) return;
                 
-                signInAnonymously(window.auth).catch(console.error);
-                
+                // Add disconnect listener to force re-render if connection drops
                 const unsubscribeAuth = onAuthStateChanged(window.auth, (u) => {
                     setUser(u);
                 });
+                signInAnonymously(window.auth).catch(console.error);
                 return () => unsubscribeAuth();
             }, [isConfigured]);
 
             useEffect(() => {
-                if (!user || !isConfigured) return;
+                if (!user || !isConfigured) {
+                    // Fallback to Local Storage if Cloud fails or not configured
+                    const loaded = loadData();
+                    setData(loaded);
+                    return;
+                }
 
                 const appId = 'animtrack-default';
                 
-                // Projects Listener
                 const qProjects = collection(window.db, 'artifacts', appId, 'users', user.uid, 'projects');
                 const unsubProjects = onSnapshot(qProjects, (snapshot) => {
                     const projs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -848,12 +792,10 @@
                     }
                 });
 
-                // Settings/Clients Listener
                 const docSettings = doc(window.db, 'artifacts', appId, 'users', user.uid, 'settings', 'general');
                 const unsubSettings = onSnapshot(docSettings, (snap) => {
                     if (snap.exists()) {
                         const d = snap.data();
-                        // Sanitize clients
                         const sanitizedClients = (d.clients || []).map(c => ({
                             ...c,
                             mode: c.mode || 'per_shot',
@@ -877,55 +819,69 @@
                 return () => { unsubProjects(); unsubSettings(); };
             }, [user, isConfigured]);
 
-            // --- Handlers (Firebase Versions) ---
+            // Save to LocalStorage as backup/offline mode
+            useEffect(() => {
+                if (!isConfigured && !loading) {
+                    saveData(data);
+                }
+            }, [data, loading, isConfigured]);
+
             const appId = 'animtrack-default';
 
             const handleUpdateLists = async (newClients) => {
-                if (!user) return;
-                await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), {
-                    clients: newClients
-                });
+                if (isConfigured && user) {
+                    await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), { clients: newClients });
+                } else {
+                    setData(prev => ({ ...prev, clients: newClients }));
+                }
             };
 
             const handleSaveProject = async (formProject) => {
-                if (!user) return;
                 const now = new Date().toISOString();
-                const projectData = {
-                    ...formProject,
-                    updatedAt: now,
-                    createdAt: editingProject ? editingProject.createdAt : now
-                };
+                const projectData = { ...formProject, updatedAt: now, createdAt: editingProject ? editingProject.createdAt : now };
 
-                if (editingProject) {
-                    await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', editingProject.id), projectData);
+                if (isConfigured && user) {
+                    if (editingProject) await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', editingProject.id), projectData);
+                    else await addDoc(collection(window.db, 'artifacts', appId, 'users', user.uid, 'projects'), projectData);
                 } else {
-                    await addDoc(collection(window.db, 'artifacts', appId, 'users', user.uid, 'projects'), projectData);
+                    let updatedProjects;
+                    if (editingProject) updatedProjects = data.projects.map(p => p.id === editingProject.id ? { ...p, ...projectData } : p);
+                    else updatedProjects = [...data.projects, { ...projectData, id: crypto.randomUUID() }];
+                    setData(prev => ({ ...prev, projects: updatedProjects }));
                 }
                 setIsModalOpen(false);
                 setEditingProject(null);
             };
 
             const handleDeleteProject = async (id) => {
-                if (!user) return;
-                await deleteDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', id));
+                if (isConfigured && user) {
+                    await deleteDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', id));
+                } else {
+                    setData(prev => ({ ...prev, projects: prev.projects.filter(p => p.id !== id) }));
+                }
                 if (viewingProject?.id === id) setViewingProject(null);
                 setIsModalOpen(false);
             };
 
             const handleUpdateNotes = async (projectId, updates) => {
-                if (!user) return;
-                await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', projectId), updates);
+                if (isConfigured && user) {
+                    await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', projectId), updates);
+                } else {
+                    setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === projectId ? { ...p, ...updates } : p) }));
+                }
+                if (viewingProject?.id === projectId) setViewingProject(prev => ({ ...prev, ...updates }));
             };
 
             const handleToggleActive = async (project) => {
-                if (!user) return;
-                await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), {
-                    isWorkingOn: !project.isWorkingOn
-                });
+                if (isConfigured && user) {
+                    await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), { isWorkingOn: !project.isWorkingOn });
+                } else {
+                    const isNowActive = !project.isWorkingOn;
+                    setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === project.id ? { ...p, isWorkingOn: isNowActive } : p) }));
+                }
             };
 
             const handleMoveStatus = async (project, direction) => {
-                if (!user) return;
                 const flow = ['inquiry', 'layout', 'blocking', 'splining', 'polishing', 'completed', 'paid'];
                 const currentIndex = flow.indexOf(project.status);
                 let newIndex = currentIndex;
@@ -941,62 +897,76 @@
                     const client = data.clients.find(c => c.name === project.client);
                     const isMonthly = client?.mode === 'monthly';
 
-                    // Batch Update for Monthly
-                    if (newStatus === 'paid' && isMonthly) {
-                         const batch = writeBatch(window.db);
-                         const targetDate = parseLocalDate(project.deadline || project.createdAt);
-                         const targetMonth = targetDate.getMonth();
-                         const targetYear = targetDate.getFullYear();
-
-                         // Update clicked project
-                         batch.update(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), updates);
-
-                         // Find peers to update
-                         data.projects.forEach(p => {
-                            if (p.id !== project.id && p.client === project.client && p.status === 'completed') {
-                                const pDate = parseLocalDate(p.deadline || p.createdAt);
-                                if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
-                                    batch.update(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', p.id), {
-                                        status: 'paid',
-                                        paymentDate: todayStr
-                                    });
+                    if (isConfigured && user) {
+                        if (newStatus === 'paid' && isMonthly) {
+                            const batch = writeBatch(window.db);
+                            const targetDate = parseLocalDate(project.deadline || project.createdAt);
+                            const targetMonth = targetDate.getMonth();
+                            const targetYear = targetDate.getFullYear();
+                            
+                            batch.update(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), updates);
+                            
+                            data.projects.forEach(p => {
+                                if (p.id !== project.id && p.client === project.client && p.status === 'completed') {
+                                    const pDate = parseLocalDate(p.deadline || p.createdAt);
+                                    if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
+                                        batch.update(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', p.id), { status: 'paid', paymentDate: todayStr });
+                                    }
                                 }
-                            }
-                         });
-                         await batch.commit();
+                            });
+                            await batch.commit();
+                        } else {
+                            await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), updates);
+                        }
                     } else {
-                        await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), updates);
+                        // Offline Logic
+                         if (newStatus === 'paid' && isMonthly) {
+                             const targetDate = parseLocalDate(project.deadline || project.createdAt);
+                             const targetMonth = targetDate.getMonth();
+                             const targetYear = targetDate.getFullYear();
+
+                             const updatedProjects = data.projects.map(p => {
+                                if (p.client === project.client && p.status === 'completed') {
+                                    const pDate = parseLocalDate(p.deadline || p.createdAt);
+                                    if (pDate.getMonth() === targetMonth && pDate.getFullYear() === targetYear) {
+                                        return { ...p, status: 'paid', paymentDate: todayStr };
+                                    }
+                                }
+                                if (p.id === project.id) return { ...p, ...updates };
+                                return p;
+                             });
+                             setData(prev => ({ ...prev, projects: updatedProjects }));
+                        } else {
+                            setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === project.id ? { ...p, ...updates } : p) }));
+                        }
                     }
                 }
             };
 
             const handleRestoreProject = async (project) => {
-                if (!user) return;
-                if (confirm(`Restore "${project.name}" to Pending Pay?`)) {
-                    await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), {
-                        status: 'completed',
-                        paymentDate: ''
-                    });
+                if (isConfigured && user) {
+                     await updateDoc(doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', project.id), { status: 'completed', paymentDate: '' });
+                } else {
+                    if (confirm(`Restore "${project.name}"?`)) {
+                        setData(prev => ({ ...prev, projects: prev.projects.map(p => p.id === project.id ? { ...p, status: 'completed', paymentDate: '' } : p) }));
+                    }
                 }
             };
             
-            // Re-use logic for imports but write to Firestore batch
             const handleImportData = async (importedData) => {
-                if (!user) return false;
                 if (importedData.projects && importedData.settings) {
-                    const batch = writeBatch(window.db);
-                    
-                    // Settings
-                    batch.set(doc(window.db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), importedData.settings);
-                    
-                    // Projects
-                    importedData.projects.forEach(p => {
-                        const { id, ...rest } = p;
-                        const docRef = id ? doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', id) : doc(collection(window.db, 'artifacts', appId, 'users', user.uid, 'projects'));
-                        batch.set(docRef, { ...rest, updatedAt: new Date().toISOString() });
-                    });
-                    
-                    await batch.commit();
+                    if (isConfigured && user) {
+                        const batch = writeBatch(window.db);
+                        batch.set(doc(window.db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), importedData.settings);
+                        importedData.projects.forEach(p => {
+                            const { id, ...rest } = p;
+                            const docRef = id ? doc(window.db, 'artifacts', appId, 'users', user.uid, 'projects', id) : doc(collection(window.db, 'artifacts', appId, 'users', user.uid, 'projects'));
+                            batch.set(docRef, { ...rest, updatedAt: new Date().toISOString() });
+                        });
+                        await batch.commit();
+                    } else {
+                        setData({ projects: importedData.projects || [], clients: importedData.settings.clients || [] });
+                    }
                     return true;
                 }
                 return false;
@@ -1177,7 +1147,7 @@
 
                     {/* Modals */}
                     <ProjectModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveProject} onDelete={handleDeleteProject} initialData={editingProject} clients={data.clients} />
-                    <ListManager isOpen={isListManagerOpen} onClose={() => setIsListManagerOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImportData} />
+                    <ListManager isOpen={isListManagerOpen} onClose={() => setIsListManagerOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImportData} user={user} />
                     <ArchiveModal isOpen={isArchiveOpen} onClose={() => setIsArchiveOpen(false)} projects={projectsByStatus.paid} clients={data.clients} onRestore={handleRestoreProject} />
                     {viewingProject && <ProjectDetails project={viewingProject} onClose={() => setViewingProject(null)} onUpdate={handleUpdateNotes} onEdit={() => {setViewingProject(null); setEditingProject(viewingProject); setIsModalOpen(true);}} />}
                 </div>
