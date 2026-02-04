@@ -36,6 +36,15 @@
         /* Tooltip Fade In */
         .fade-in { animation: fadeIn 0.2s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Rich Text Editor Styles */
+        .editor-content ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.5rem; }
+        .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.5rem; }
+        .editor-content li { margin-bottom: 0.25rem; }
+        .editor-content b, .editor-content strong { font-weight: bold; color: #fff; }
+        .editor-content i, .editor-content em { font-style: italic; }
+        .editor-content u { text-decoration: underline; }
+        .editor-content p { margin-bottom: 0.5rem; }
     </style>
 </head>
 <body>
@@ -50,18 +59,18 @@
             ChevronLeft, ChevronRight, AlertCircle, Filter, AlignLeft, Settings, 
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
-            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, FolderOpen, RotateCcw
+            BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, 
+            FolderOpen, RotateCcw, Bold, Italic, Underline, List, ListOrdered
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
-        const STORAGE_KEY = 'animtrack_db_v10'; // Bumped version for new schema support if any
+        const STORAGE_KEY = 'animtrack_db_v11'; // Bumped version
         
         const loadData = () => {
             try {
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    // Ensure clients have correct schema
                     if (parsed.clients) {
                         parsed.clients = parsed.clients.map(c => ({
                             ...c,
@@ -102,6 +111,14 @@
             return new Date(y, m - 1, d);
         };
 
+        const getLocalDateString = () => {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+
         const getDayDiff = (d1, d2) => {
             const date1 = parseLocalDate(d1);
             const date2 = parseLocalDate(d2);
@@ -110,6 +127,51 @@
             date2.setHours(0,0,0,0);
             const diffTime = date2.getTime() - date1.getTime();
             return Math.round(diffTime / (1000 * 60 * 60 * 24)); 
+        };
+
+        // --- Rich Text Editor Component ---
+        const RichTextEditor = ({ value, onChange }) => {
+            const editorRef = useRef(null);
+
+            // Sync initial value or external updates
+            useEffect(() => {
+                if (editorRef.current && value !== editorRef.current.innerHTML) {
+                    // Prevent cursor jumping if focused
+                    if (document.activeElement !== editorRef.current) {
+                        editorRef.current.innerHTML = value || '';
+                    }
+                }
+            }, [value]);
+
+            const handleInput = () => {
+                const html = editorRef.current.innerHTML;
+                onChange(html);
+            };
+
+            const execCmd = (cmd, e) => {
+                e.preventDefault(); // Prevent focus loss
+                document.execCommand(cmd, false, null);
+            };
+
+            return (
+                <div className="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden flex flex-col min-h-[500px]">
+                    <div className="flex items-center gap-1 p-2 bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
+                        <button onMouseDown={(e) => execCmd('bold', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Bold"><Bold size={14} /></button>
+                        <button onMouseDown={(e) => execCmd('italic', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Italic"><Italic size={14} /></button>
+                        <button onMouseDown={(e) => execCmd('underline', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Underline"><Underline size={14} /></button>
+                        <div className="w-px h-4 bg-gray-700 mx-1" />
+                        <button onMouseDown={(e) => execCmd('insertUnorderedList', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Bullet List"><List size={14} /></button>
+                        <button onMouseDown={(e) => execCmd('insertOrderedList', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Numbered List"><ListOrdered size={14} /></button>
+                    </div>
+                    <div
+                        ref={editorRef}
+                        className="editor-content p-4 outline-none text-gray-300 text-sm font-sans flex-1"
+                        contentEditable
+                        onInput={handleInput}
+                        suppressContentEditableWarning={true}
+                    />
+                </div>
+            );
         };
 
         // --- Components ---
@@ -224,55 +286,55 @@
 
                                 return (
                                     <div key={wIdx} className="relative border-b border-gray-800 min-h-[150px]">
-                                        <div className="grid grid-cols-7 absolute inset-0 z-0">
-                                            {week.map((day, dIdx) => {
-                                                const isToday = day.toDateString() === new Date().toDateString();
-                                                const isPast = day < new Date(new Date().setHours(0,0,0,0));
-                                                const holiday = getPhHoliday(day);
-                                                return (
-                                                    <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
-                                                         onClick={()=>setActiveHoliday(holiday ? {date: day.toISOString(), name: holiday} : null)}>
-                                                        {isToday && <div className="absolute inset-y-0 left-0 bg-blue-500/10 border-r border-blue-500/30 transition-all duration-1000" style={{width:`${dayProgress}%`}}/>}
-                                                        {holiday && <Star size={24} className="absolute top-1 right-1 opacity-20 text-yellow-500" fill="currentColor"/>}
-                                                        <span className={`relative z-10 text-xs font-bold ${isToday?'text-blue-400 text-lg':isPast?'text-gray-600':'text-gray-400'}`}>{day.getDate()}</span>
-                                                        {holiday && activeHoliday?.date === day.toISOString() && (
-                                                            <div className="absolute top-6 left-0 right-0 z-50 bg-gray-800 border border-yellow-500/50 text-[9px] p-1 text-center rounded text-white shadow-xl fade-in">{holiday}</div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <div className="relative z-10 w-full pt-8 pb-2">
-                                            {weekItems.map((item, idx) => {
-                                                 const start = parseLocalDate(item.startDate || item.createdAt);
-                                                 const end = parseLocalDate(item.deadline) || start;
-                                                 const wStart = week[0];
-                                                 
-                                                 const diffStart = getDayDiff(wStart, start);
-                                                 const diffEnd = getDayDiff(wStart, end);
-                                                 const colStart = Math.max(0, diffStart);
-                                                 const colEnd = Math.min(6, diffEnd);
-                                                 
-                                                 if (colStart > 6 || colEnd < 0) return null;
-                                                 
-                                                 const span = (colEnd - colStart) + 1;
-                                                 
-                                                 return (
-                                                     <div key={item.id} 
-                                                          className="absolute h-5 px-1 z-10 pointer-events-auto"
-                                                          style={{
-                                                              left: `${(colStart / 7) * 100}%`,
-                                                              width: `${(span / 7) * 100}%`,
-                                                              bottom: `${idx * 22 + 4}px` // Stack from bottom
-                                                          }}
-                                                     >
-                                                         <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
-                                                             {item.name}
-                                                         </button>
-                                                     </div>
-                                                 )
-                                            })}
-                                        </div>
+                                            <div className="grid grid-cols-7 absolute inset-0 z-0">
+                                                {week.map((day, dIdx) => {
+                                                    const isToday = day.toDateString() === new Date().toDateString();
+                                                    const isPast = day < new Date(new Date().setHours(0,0,0,0));
+                                                    const holiday = getPhHoliday(day);
+                                                    return (
+                                                        <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
+                                                              onClick={()=>setActiveHoliday(holiday ? {date: day.toISOString(), name: holiday} : null)}>
+                                                            {isToday && <div className="absolute inset-y-0 left-0 bg-blue-500/10 border-r border-blue-500/30 transition-all duration-1000" style={{width:`${dayProgress}%`}}/>}
+                                                            {holiday && <Star size={24} className="absolute top-1 right-1 opacity-20 text-yellow-500" fill="currentColor"/>}
+                                                            <span className={`relative z-10 text-xs font-bold ${isToday?'text-blue-400 text-lg':isPast?'text-gray-600':'text-gray-400'}`}>{day.getDate()}</span>
+                                                            {holiday && activeHoliday?.date === day.toISOString() && (
+                                                                <div className="absolute top-6 left-0 right-0 z-50 bg-gray-800 border border-yellow-500/50 text-[9px] p-1 text-center rounded text-white shadow-xl fade-in">{holiday}</div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="relative z-10 w-full pt-8 pb-2">
+                                                {weekItems.map((item, idx) => {
+                                                     const start = parseLocalDate(item.startDate || item.createdAt);
+                                                     const end = parseLocalDate(item.deadline) || start;
+                                                     const wStart = week[0];
+                                                     
+                                                     const diffStart = getDayDiff(wStart, start);
+                                                     const diffEnd = getDayDiff(wStart, end);
+                                                     const colStart = Math.max(0, diffStart);
+                                                     const colEnd = Math.min(6, diffEnd);
+                                                     
+                                                     if (colStart > 6 || colEnd < 0) return null;
+                                                     
+                                                     const span = (colEnd - colStart) + 1;
+                                                     
+                                                     return (
+                                                         <div key={item.id} 
+                                                              className="absolute h-5 px-1 z-10 pointer-events-auto"
+                                                              style={{
+                                                                  left: `${(colStart / 7) * 100}%`,
+                                                                  width: `${(span / 7) * 100}%`,
+                                                                  bottom: `${idx * 22 + 4}px` // Stack from bottom
+                                                              }}
+                                                         >
+                                                             <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
+                                                                  {item.name}
+                                                             </button>
+                                                         </div>
+                                                     )
+                                                })}
+                                            </div>
                                     </div>
                                 );
                             })}
@@ -305,7 +367,11 @@
             }
             
             const isActiveWorking = project.isWorkingOn;
-            const today = parseLocalDate(new Date().toISOString().split('T')[0]);
+            
+            // FIX: Use local time for 'today' to prevent timezone lag issues
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
             const deadline = parseLocalDate(project.deadline);
             const start = parseLocalDate(project.startDate) || parseLocalDate(project.createdAt) || today;
             
@@ -404,11 +470,12 @@
             const [progress, setProgress] = useState(project.progress || 0);
             const timer = useRef(null);
             
-            const changeNotes = (e) => { 
-                setNotes(e.target.value); 
+            const changeNotes = (html) => { 
+                setNotes(html); 
                 clearTimeout(timer.current); 
-                timer.current = setTimeout(() => onUpdate(project.id, { notes: e.target.value, progress }), 1000); 
+                timer.current = setTimeout(() => onUpdate(project.id, { notes: html, progress }), 1000); 
             };
+            
             const changeProg = (e) => { 
                 setProgress(e.target.value); 
                 clearTimeout(timer.current); 
@@ -434,7 +501,12 @@
                                 <div className="flex justify-between mb-2 text-sm font-bold text-gray-300"><span>Progress</span><span className="text-blue-400">{progress}%</span></div>
                                 <input type="range" min="0" max="100" value={progress} onChange={changeProg} className="w-full h-2 bg-gray-700 rounded-lg accent-blue-500" />
                             </div>
-                            <textarea className="w-full h-[300px] bg-gray-950 border border-gray-800 rounded-xl p-4 text-gray-300 font-mono text-sm" value={notes} onChange={changeNotes} placeholder="Notes..." />
+                            
+                            {/* Rich Text Editor Replacement */}
+                            <div className="space-y-2">
+                                <label className="text-xs text-gray-500 font-bold uppercase tracking-wider">Project Notes</label>
+                                <RichTextEditor value={notes} onChange={changeNotes} />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -664,7 +736,7 @@
                             fixedPrice: (defPayType==='fixed') ? defPrice : 0,
                             shotRate: (defPayType==='per_shot') ? defPrice : 0,
                             shotCount: 1,
-                            startDate: new Date().toISOString().split('T')[0],
+                            startDate: getLocalDateString(), // FIX: Default to local date string
                             deadline: '',
                             progress: 0,
                             notes: '',
