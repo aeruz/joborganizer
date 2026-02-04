@@ -272,7 +272,7 @@
                             
                             {weeks.map((week, wIdx) => {
                                 // Find items in this week
-                                const weekItems = projects.filter(p => {
+                                let weekItems = projects.filter(p => {
                                    const start = parseLocalDate(p.startDate || p.createdAt) || new Date();
                                    const end = parseLocalDate(p.deadline) || new Date();
                                    const wStart = week[0];
@@ -284,15 +284,28 @@
                                    return start <= wEnd && end >= wStart;
                                 });
 
+                                // Sort by start date to look nicer when stacked
+                                weekItems.sort((a, b) => {
+                                    const sa = parseLocalDate(a.startDate || a.createdAt);
+                                    const sb = parseLocalDate(b.startDate || b.createdAt);
+                                    return sa - sb;
+                                });
+
+                                // Dynamic Height Calculation
+                                const itemHeight = 24; // 20px bar + 4px gap
+                                const headerGap = 32; // Space for date numbers
+                                const minHeight = 120;
+                                const rowHeight = Math.max(minHeight, headerGap + (weekItems.length * itemHeight) + 10);
+
                                 return (
-                                    <div key={wIdx} className="relative border-b border-gray-800 min-h-[150px]">
+                                    <div key={wIdx} className="relative border-b border-gray-800" style={{ height: `${rowHeight}px` }}>
                                             <div className="grid grid-cols-7 absolute inset-0 z-0">
                                                 {week.map((day, dIdx) => {
                                                     const isToday = day.toDateString() === new Date().toDateString();
                                                     const isPast = day < new Date(new Date().setHours(0,0,0,0));
                                                     const holiday = getPhHoliday(day);
                                                     return (
-                                                        <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
+                                                        <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 h-full ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''}`}
                                                               onClick={()=>setActiveHoliday(holiday ? {date: day.toISOString(), name: holiday} : null)}>
                                                             {isToday && <div className="absolute inset-y-0 left-0 bg-blue-500/10 border-r border-blue-500/30 transition-all duration-1000" style={{width:`${dayProgress}%`}}/>}
                                                             {holiday && <Star size={24} className="absolute top-1 right-1 opacity-20 text-yellow-500" fill="currentColor"/>}
@@ -304,7 +317,7 @@
                                                     );
                                                 })}
                                             </div>
-                                            <div className="relative z-10 w-full pt-8 pb-2">
+                                            <div className="relative z-10 w-full h-full pointer-events-none">
                                                 {weekItems.map((item, idx) => {
                                                      const start = parseLocalDate(item.startDate || item.createdAt);
                                                      const end = parseLocalDate(item.deadline) || start;
@@ -321,14 +334,15 @@
                                                      
                                                      return (
                                                          <div key={item.id} 
-                                                              className="absolute h-5 px-1 z-10 pointer-events-auto"
+                                                              className="absolute px-1 z-10 pointer-events-auto transition-all hover:z-20 hover:scale-[1.02]"
                                                               style={{
                                                                   left: `${(colStart / 7) * 100}%`,
                                                                   width: `${(span / 7) * 100}%`,
-                                                                  bottom: `${idx * 22 + 4}px` // Stack from bottom
+                                                                  top: `${headerGap + (idx * 24)}px`, // Stacking Down
+                                                                  height: '20px'
                                                               }}
                                                          >
-                                                             <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 ${getStatusColor(item)}`}>
+                                                             <button onClick={(e)=>{e.stopPropagation(); onEdit(item)}} className={`w-full text-left text-[9px] px-1.5 py-0.5 rounded truncate border-l-2 shadow-sm ${getStatusColor(item)}`}>
                                                                   {item.name}
                                                              </button>
                                                          </div>
