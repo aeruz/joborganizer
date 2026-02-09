@@ -60,7 +60,8 @@
             Layers, ArrowRight, ShieldCheck, AlertTriangle, User, MoreHorizontal, 
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
             BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, 
-            FolderOpen, RotateCcw, Bold, Italic, Underline, List, ListOrdered
+            FolderOpen, RotateCcw, Bold, Italic, Underline, List, ListOrdered,
+            Eye, EyeOff
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
@@ -358,7 +359,7 @@
             );
         };
 
-        const ProjectCard = ({ project, clients, onEdit, onViewDetails, moveStatus, onToggleActive }) => {
+        const ProjectCard = ({ project, clients, onEdit, onViewDetails, moveStatus, onToggleActive, showRates }) => {
             const client = clients.find(c => c.name === project.client);
             const mode = client?.mode || 'per_shot';
             
@@ -443,7 +444,7 @@
                         </div>
                         <div className="text-right">
                              <span className={`text-xs font-mono font-bold ${mode === 'monthly' && project.payType !== 'monthly_salary' ? 'text-purple-400' : 'text-emerald-400'}`}>
-                                {val > 0 ? `$${val.toLocaleString()}` : 'Included'}
+                                {showRates ? (val > 0 ? `$${val.toLocaleString()}` : 'Included') : '****'}
                             </span>
                             {label && <div className="text-[9px] text-gray-500">{label}</div>}
                         </div>
@@ -879,7 +880,7 @@
         };
 
         // --- Statistics View (Moved above App) ---
-        const StatisticsView = ({ projects, clients }) => {
+        const StatisticsView = ({ projects, clients, showRates }) => {
             const { monthlyData, clientData } = useMemo(() => {
                 const months = Array.from({length: 12}, (_, i) => ({ 
                     name: new Date(0, i).toLocaleString('default', {month:'short'}), 
@@ -939,12 +940,12 @@
                                         <div 
                                             className="w-full bg-emerald-500/80 hover:bg-emerald-400 transition-all duration-500 absolute bottom-0" 
                                             style={{ height: `${(m.earned / maxVal) * 100}%` }}
-                                            title={`Earned: $${m.earned.toLocaleString()}`}
+                                            title={showRates ? `Earned: $${m.earned.toLocaleString()}` : 'Earned: ****'}
                                         />
                                         <div 
                                             className="w-full bg-blue-500/30 hover:bg-blue-400/30 transition-all duration-500 absolute" 
                                             style={{ bottom: `${(m.earned / maxVal) * 100}%`, height: `${(m.projected / maxVal) * 100}%` }}
-                                            title={`Projected: $${m.projected.toLocaleString()}`}
+                                            title={showRates ? `Projected: $${m.projected.toLocaleString()}` : 'Projected: ****'}
                                         />
                                     </div>
                                     <span className="text-[10px] text-gray-500 mt-2 uppercase">{m.name}</span>
@@ -962,7 +963,7 @@
                                     <div key={i}>
                                         <div className="flex justify-between text-xs mb-1">
                                             <span className="text-gray-300">{name}</span>
-                                            <span className="text-white font-mono">${val.toLocaleString()}</span>
+                                            <span className="text-white font-mono">{showRates ? `$${val.toLocaleString()}` : '****'}</span>
                                         </div>
                                         <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
                                             <div className="bg-purple-500 h-full" style={{ width: `${(val / Math.max(...Object.values(clientData), 1)) * 100}%` }}></div>
@@ -1008,6 +1009,7 @@
             const [currentDate, setCurrentDate] = useState(new Date());
             const [filterByMonth, setFilterByMonth] = useState(false);
             const [showStats, setShowStats] = useState(false); 
+            const [showRates, setShowRates] = useState(true);
 
             useEffect(() => {
                 const loaded = loadData();
@@ -1208,6 +1210,9 @@
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2">
+                                <button onClick={() => setShowRates(!showRates)} className="p-2 text-gray-400 bg-gray-800 border border-gray-700 rounded-lg hover:text-white" title={showRates ? "Hide Rates" : "Show Rates"}>
+                                    {showRates ? <Eye size={16} /> : <EyeOff size={16} />}
+                                </button>
                                 <button onClick={() => setIsListManagerOpen(true)} className="p-2 text-gray-400 bg-gray-800 border border-gray-700 rounded-lg hover:text-white"><Settings size={16} /></button>
                                 <button onClick={() => { setEditingProject(null); setIsModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center shadow-lg"><Plus size={14} className="mr-1" /> New</button>
                             </div>
@@ -1232,9 +1237,9 @@
                     {/* Stats */}
                     {showStats && viewMode !== 'stats' && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-900 border-b border-gray-800 shrink-0">
-                            <StatCard title="Projected" value={`$${stats.monthlyProjected.toLocaleString()}`} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
-                            <StatCard title="Earned" value={`$${stats.monthlyEarned.toLocaleString()}`} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
-                            <StatCard title="Pending" value={`$${stats.pendingPayment.toLocaleString()}`} icon={Clock} colorClass="bg-yellow-500 text-yellow-500" />
+                            <StatCard title="Projected" value={showRates ? `$${stats.monthlyProjected.toLocaleString()}` : '****'} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
+                            <StatCard title="Earned" value={showRates ? `$${stats.monthlyEarned.toLocaleString()}` : '****'} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
+                            <StatCard title="Pending" value={showRates ? `$${stats.pendingPayment.toLocaleString()}` : '****'} icon={Clock} colorClass="bg-yellow-500 text-yellow-500" />
                         </div>
                     )}
 
@@ -1263,7 +1268,7 @@
                                         {col.id !== 'paid' && (
                                             <div className="flex space-x-3 overflow-x-auto pb-4 px-1 custom-scrollbar min-h-[140px]">
                                                 {projectsByStatus[col.id]?.map(p => (
-                                                    <ProjectCard key={p.id} project={p} clients={data.clients} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} onToggleActive={handleToggleActive} />
+                                                    <ProjectCard key={p.id} project={p} clients={data.clients} onEdit={() => {setEditingProject(p); setIsModalOpen(true);}} onViewDetails={() => setViewingProject(p)} moveStatus={handleMoveStatus} onToggleActive={handleToggleActive} showRates={showRates} />
                                                 ))}
                                                 {projectsByStatus[col.id]?.length === 0 && (
                                                     <div className="w-full h-32 flex items-center justify-center border-2 border-dashed border-gray-800/50 rounded-xl text-gray-600 text-xs italic shrink-0">
@@ -1281,7 +1286,7 @@
                             </div>
                         ) : (
                             <div className="h-full p-4 overflow-y-auto">
-                                <StatisticsView projects={data.projects} clients={data.clients} />
+                                <StatisticsView projects={data.projects} clients={data.clients} showRates={showRates} />
                             </div>
                         )}
                     </main>
