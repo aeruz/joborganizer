@@ -41,7 +41,7 @@
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.5rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.5rem; }
         .editor-content li { margin-bottom: 0.25rem; }
-        .editor-content b, .editor-content strong { font-weight: bold; color: #fff; }
+        .editor-content b, .editor-content strong { font-weight: bold; } /* Removed forced color to allow custom colors */
         .editor-content i, .editor-content em { font-style: italic; }
         .editor-content u { text-decoration: underline; }
         .editor-content p { margin-bottom: 0.5rem; }
@@ -61,7 +61,7 @@
             Download, Upload, FileJson, Sliders, WifiOff, LayoutGrid, CalendarDays,
             BarChart2, PenTool, Sparkles, Image as ImageIcon, Target, Star, Folder, 
             FolderOpen, RotateCcw, Bold, Italic, Underline, List, ListOrdered,
-            Eye, EyeOff
+            Eye, EyeOff, Type, Highlighter, Eraser
         } from 'lucide-react';
 
         // --- Local Storage Helper ---
@@ -154,6 +154,18 @@
                 document.execCommand(cmd, false, null);
             };
 
+            const execColor = (cmd, val) => {
+                document.execCommand('styleWithCSS', false, true);
+                document.execCommand(cmd, false, val);
+            };
+
+            const resetColors = (e) => {
+                e.preventDefault();
+                document.execCommand('styleWithCSS', false, true);
+                document.execCommand('foreColor', false, '#d1d5db'); // Reset to default text color (text-gray-300)
+                document.execCommand('hiliteColor', false, 'transparent'); // Remove background highlight
+            };
+
             return (
                 <div className="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden flex flex-col min-h-[500px]">
                     <div className="flex items-center gap-1 p-2 bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
@@ -163,6 +175,24 @@
                         <div className="w-px h-4 bg-gray-700 mx-1" />
                         <button onMouseDown={(e) => execCmd('insertUnorderedList', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Bullet List"><List size={14} /></button>
                         <button onMouseDown={(e) => execCmd('insertOrderedList', e)} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Numbered List"><ListOrdered size={14} /></button>
+                        
+                        <div className="w-px h-4 bg-gray-700 mx-1" />
+                        
+                        <div className="relative p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors cursor-pointer" title="Text Color">
+                            <Type size={14} />
+                            <input type="color" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" onChange={(e) => execColor('foreColor', e.target.value)} />
+                        </div>
+                        
+                        <div className="relative p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors cursor-pointer" title="Highlight Color">
+                            <Highlighter size={14} />
+                            <input type="color" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" onChange={(e) => execColor('hiliteColor', e.target.value)} />
+                        </div>
+
+                        <div className="w-px h-4 bg-gray-700 mx-1" />
+
+                        <button onMouseDown={resetColors} className="p-1.5 rounded hover:bg-gray-800 text-gray-400 hover:text-white transition-colors" title="Reset Colors (Default)">
+                            <Eraser size={14} />
+                        </button>
                     </div>
                     <div
                         ref={editorRef}
