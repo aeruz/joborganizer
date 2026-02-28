@@ -83,7 +83,7 @@
         };
 
         // --- Local Storage Helper ---
-        const STORAGE_KEY = 'animtrack_db_v11'; // Bumped version
+        const STORAGE_KEY = 'animtrack_db_v12'; // Bumped version for Leaves
         
         const loadData = () => {
             try {
@@ -98,9 +98,9 @@
                             payDay: c.payDay || 25
                         }));
                     }
-                    if (!parsed.holidays) {
-                        parsed.holidays = [];
-                    }
+                    if (!parsed.holidays) parsed.holidays = [];
+                    if (!parsed.leaves) parsed.leaves = []; // Ensure leaves array exists
+                    if (parsed.totalLeaves === undefined) parsed.totalLeaves = 24; // Ensure totalLeaves exists
                     return parsed;
                 }
             } catch (e) {
@@ -112,7 +112,9 @@
                     { name: 'Example Studio', mode: 'per_shot', defaultRate: 150, projects: ['Season 1'] },
                     { name: 'Retainer Client', mode: 'monthly', defaultRate: 2500, payDay: 25, projects: ['Commercials'] }
                 ],
-                holidays: []
+                holidays: [],
+                leaves: [],
+                totalLeaves: 24
             };
         };
 
@@ -400,6 +402,7 @@
                                                 {week.map((day, dIdx) => {
                                                     const isToday = day.toDateString() === new Date().toDateString();
                                                     const isPast = day < new Date(new Date().setHours(0,0,0,0));
+                                                    const isWeekend = dIdx === 0 || dIdx === 6;
                                                     
                                                     // Find holiday for this day/month
                                                     const currentMonth = day.getMonth() + 1;
@@ -408,8 +411,14 @@
                                                     
                                                     const IconComp = holiday && ICON_OPTIONS[holiday.iconName] ? ICON_OPTIONS[holiday.iconName] : null;
 
+                                                    // Determine Background Class for cell
+                                                    let bgClass = '';
+                                                    if (isToday) bgClass = 'bg-gray-900';
+                                                    else if (isWeekend) bgClass = isPast ? 'bg-gray-950' : 'bg-gray-800/30';
+                                                    else if (isPast) bgClass = 'bg-gray-950/50';
+
                                                     return (
-                                                        <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 h-full cursor-pointer transition-colors ${isPast?'bg-gray-950/50':''} ${isToday?'bg-gray-900':''} hover:bg-gray-800`}
+                                                        <div key={dIdx} className={`relative border-r border-gray-800/50 p-1 h-full cursor-pointer transition-colors ${bgClass} hover:bg-gray-800`}
                                                               onClick={()=>{
                                                                   if (holiday) {
                                                                       setActiveHoliday(activeHoliday?.id === holiday.id ? null : {id: holiday.id, date: day.toISOString(), ...holiday});
@@ -475,6 +484,148 @@
                                     </div>
                                 );
                             })}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const LeaveTrackerView = ({ leaves, totalLeaves, onAddLeave, onDeleteLeave, onUpdateTotalLeaves }) => {
+            const [isFiling, setIsFiling] = useState(false);
+            const [form, setForm] = useState({ startDate: '', endDate: '', reason: '' });
+            const [isEditingTotal, setIsEditingTotal] = useState(false);
+            const [editTotalVal, setEditTotalVal] = useState(totalLeaves);
+
+            // Cycle calc (July 1st to June 30th)
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            const cycleStartYear = now.getMonth() >= 6 ? currentYear : currentYear - 1;
+            const cycleStart = new Date(cycleStartYear, 6, 1);
+            const cycleEnd = new Date(cycleStartYear + 1, 5, 30);
+
+            // Filter leaves for this cycle
+            const cycleLeaves = leaves.filter(l => {
+                const ld = parseLocalDate(l.startDate);
+                return ld >= cycleStart && ld <= cycleEnd;
+            }).sort((a,b) => parseLocalDate(b.startDate) - parseLocalDate(a.startDate));
+
+            const usedLeaves = cycleLeaves.reduce((sum, l) => sum + (parseFloat(l.days) || 0), 0);
+            const remainingLeaves = totalLeaves - usedLeaves;
+
+            const calcWeekdays = (start, end) => {
+                let count = 0;
+                let cur = new Date(start);
+                while (cur <= end) {
+                    const day = cur.getDay();
+                    if (day !== 0 && day !== 6) count++; // skip weekends
+                    cur.setDate(cur.getDate() + 1);
+                }
+                return count;
+            }
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const s = parseLocalDate(form.startDate);
+                const eDate = form.endDate ? parseLocalDate(form.endDate) : s;
+                
+                if(!s || !eDate || s > eDate) return alert('Invalid dates selected.');
+                
+                const days = calcWeekdays(s, eDate);
+                if (days <= 0) return alert('Selected range contains no working days (Weekends only).');
+
+                onAddLeave({
+                    id: crypto.randomUUID(),
+                    startDate: form.startDate,
+                    endDate: form.endDate || form.startDate,
+                    days,
+                    reason: form.reason,
+                    createdAt: new Date().toISOString()
+                });
+                
+                setIsFiling(false);
+                setForm({ startDate: '', endDate: '', reason: '' });
+            };
+
+            return (
+                <div className="flex flex-col h-full bg-gray-900 border border-gray-800 rounded-xl shadow-xl overflow-hidden p-6 custom-scrollbar overflow-y-auto">
+                    <div className="flex justify-between items-start sm:items-center mb-6 flex-col sm:flex-row gap-4">
+                        <div>
+                            <h2 className="text-xl font-bold text-white flex items-center"><Umbrella className="mr-2 text-blue-400" size={24}/> Leave Tracker</h2>
+                            <p className="text-sm text-gray-400 mt-1">Current Cycle: July {cycleStartYear} - June {cycleStartYear + 1}</p>
+                        </div>
+                        <button onClick={() => setIsFiling(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-lg flex items-center transition">
+                            <Plus size={16} className="mr-1"/> File Leave
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        {isEditingTotal ? (
+                            <div className="bg-gray-800 border border-blue-500 p-3 sm:p-4 rounded-xl flex flex-col justify-center space-y-2 shadow-lg h-full">
+                                <label className="text-[10px] sm:text-xs text-gray-400 font-bold uppercase tracking-wide">Edit Total Leaves</label>
+                                <div className="flex gap-2">
+                                    <input type="number" step="0.5" className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-white font-bold" value={editTotalVal} onChange={e=>setEditTotalVal(parseFloat(e.target.value) || 0)} />
+                                    <button onClick={() => { onUpdateTotalLeaves(editTotalVal); setIsEditingTotal(false); }} className="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded flex items-center justify-center transition"><CheckCircle size={14}/></button>
+                                    <button onClick={() => setIsEditingTotal(false)} className="bg-gray-700 hover:bg-gray-600 text-white px-3 rounded flex items-center justify-center transition"><X size={14}/></button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="relative group h-full">
+                                <StatCard title="Total Allowed" value={totalLeaves} icon={Umbrella} colorClass="bg-blue-500 text-blue-500" subtext="Resets every July" />
+                                <button onClick={() => {setEditTotalVal(totalLeaves); setIsEditingTotal(true);}} className="absolute top-3 right-3 p-1.5 bg-gray-900/80 hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow-lg border border-gray-600" title="Edit Total Leaves">
+                                    <Edit2 size={14}/>
+                                </button>
+                            </div>
+                        )}
+                        <StatCard title="Used Leaves" value={usedLeaves} icon={TrendingUp} colorClass="bg-red-500 text-red-500" />
+                        <StatCard title="Remaining" value={remainingLeaves} icon={CheckCircle} colorClass="bg-emerald-500 text-emerald-500" />
+                    </div>
+
+                    {isFiling && (
+                        <div className="bg-gray-800 p-5 rounded-xl border border-gray-700 mb-8 relative fade-in shadow-xl">
+                            <button onClick={()=>setIsFiling(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X size={18}/></button>
+                            <h3 className="font-bold text-white mb-4 text-lg">File a New Leave</h3>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs text-gray-400 font-bold uppercase tracking-wide">Start Date</label>
+                                        <input required type="date" className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 mt-1 text-white" value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-gray-400 font-bold uppercase tracking-wide">End Date <span className="text-gray-600 normal-case font-normal">(Optional)</span></label>
+                                        <input type="date" className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 mt-1 text-white" value={form.endDate} onChange={e=>setForm({...form, endDate:e.target.value})} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-400 font-bold uppercase tracking-wide">Reason</label>
+                                    <input required type="text" placeholder="e.g. Vacation, Sick Leave..." className="w-full bg-gray-900 border border-gray-700 rounded p-2.5 mt-1 text-white" value={form.reason} onChange={e=>setForm({...form, reason:e.target.value})} />
+                                </div>
+                                <div className="flex justify-end pt-3">
+                                    <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-bold text-sm transition">Submit Leave</button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+
+                    <div>
+                        <h3 className="text-white font-bold mb-4 flex items-center border-b border-gray-800 pb-2"><CalendarDays className="mr-2 text-gray-400" size={18} /> Leave History <span className="ml-2 text-xs font-normal text-gray-500">(This Cycle)</span></h3>
+                        <div className="space-y-3">
+                            {cycleLeaves.map(l => (
+                                <div key={l.id} className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex justify-between items-center group transition hover:border-gray-600">
+                                    <div>
+                                        <div className="font-bold text-white flex items-center gap-2">
+                                            <Calendar size={14} className="text-blue-400" />
+                                            {parseLocalDate(l.startDate).toLocaleDateString()}
+                                            {l.startDate !== l.endDate && ` - ${parseLocalDate(l.endDate).toLocaleDateString()}`}
+                                        </div>
+                                        <div className="text-sm text-gray-400 mt-1 pl-6 border-l-2 border-gray-700 ml-1">{l.reason}</div>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="bg-gray-900 px-3 py-1 rounded text-sm text-emerald-400 font-bold border border-gray-700 shadow-inner">{l.days} Day{l.days > 1 ? 's' : ''}</span>
+                                        <button onClick={()=>onDeleteLeave(l.id)} className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-gray-700 rounded" title="Delete Leave"><Trash2 size={16}/></button>
+                                    </div>
+                                </div>
+                            ))}
+                            {cycleLeaves.length === 0 && <div className="text-center py-12 text-gray-500 italic border-2 border-dashed border-gray-800 rounded-xl bg-gray-900/50">No leaves filed for this cycle yet.</div>}
                         </div>
                     </div>
                 </div>
@@ -1393,7 +1544,7 @@
 
         // --- Main Application ---
         function App() {
-            const [data, setData] = useState({ projects: [], clients: [], holidays: [] });
+            const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 24 });
             const [loading, setLoading] = useState(true);
             const [viewMode, setViewMode] = useState('board'); 
             const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1424,6 +1575,14 @@
 
             const handleUpdateHolidays = (newHolidays) => {
                 setData(prev => ({ ...prev, holidays: newHolidays }));
+            };
+
+            const handleAddLeave = (leave) => {
+                setData(prev => ({ ...prev, leaves: [...(prev.leaves || []), leave] }));
+            };
+
+            const handleDeleteLeave = (id) => {
+                setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(l => l.id !== id) }));
             };
 
             const handleSaveProject = (formProject) => {
@@ -1504,7 +1663,9 @@
                     setData({ 
                         projects: importedData.projects || [], 
                         clients: importedData.clients || [],
-                        holidays: importedData.holidays || []
+                        holidays: importedData.holidays || [],
+                        leaves: importedData.leaves || [],
+                        totalLeaves: importedData.totalLeaves ?? 24
                     });
                     return true;
                 }
@@ -1623,6 +1784,7 @@
                                     <button onClick={() => setViewMode('board')} className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'board' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}><LayoutGrid size={14} /></button>
                                     <button onClick={() => setViewMode('calendar')} className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'calendar' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}><CalendarDays size={14} /></button>
                                     <button onClick={() => setViewMode('stats')} className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'stats' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`}><BarChart2 size={14} /></button>
+                                    <button onClick={() => setViewMode('leaves')} className={`px-2 sm:px-3 py-1 rounded-md text-xs font-medium transition ${viewMode === 'leaves' ? 'bg-gray-700 text-white shadow' : 'text-gray-400 hover:text-white'}`} title="Leave Tracker"><Umbrella size={14} /></button>
                                 </div>
                             </div>
                             <div className="flex items-center space-x-2">
@@ -1639,7 +1801,7 @@
                     </header>
 
                     {/* Sub-Header */}
-                    {viewMode !== 'stats' && (
+                    {viewMode !== 'stats' && viewMode !== 'leaves' && (
                         <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-gray-800 bg-gray-950/50 shrink-0 gap-2">
                             <div className="flex items-center bg-gray-800 rounded-lg p-0.5 border border-gray-700">
                                 <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"><ChevronLeft size={16}/></button>
@@ -1654,7 +1816,7 @@
                     )}
 
                     {/* Stats */}
-                    {showStats && viewMode !== 'stats' && (
+                    {showStats && viewMode !== 'stats' && viewMode !== 'leaves' && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-900 border-b border-gray-800 shrink-0">
                             <StatCard title="Projected" value={showRates ? `$${stats.monthlyProjected.toLocaleString()}` : '****'} icon={TrendingUp} colorClass="bg-blue-500 text-blue-500" />
                             <StatCard title="Earned" value={showRates ? `$${stats.monthlyEarned.toLocaleString()}` : '****'} icon={CreditCard} colorClass="bg-emerald-500 text-emerald-500" />
@@ -1703,11 +1865,15 @@
                             <div className="h-full p-2">
                                 <CalendarView projects={data.projects} holidays={data.holidays} currentDate={currentDate} onEdit={(p) => {setEditingProject(p); setIsModalOpen(true);}} />
                             </div>
-                        ) : (
+                        ) : viewMode === 'stats' ? (
                             <div className="h-full p-4 overflow-y-auto">
                                 <StatisticsView projects={data.projects} clients={data.clients} showRates={showRates} onOpenPending={() => setIsPendingSummaryOpen(true)} />
                             </div>
-                        )}
+                        ) : viewMode === 'leaves' ? (
+                            <div className="h-full p-4 overflow-y-auto">
+                                <LeaveTrackerView leaves={data.leaves || []} totalLeaves={data.totalLeaves || 24} onAddLeave={handleAddLeave} onDeleteLeave={handleDeleteLeave} onUpdateTotalLeaves={(val) => setData(prev => ({...prev, totalLeaves: val}))} />
+                            </div>
+                        ) : null}
                     </main>
 
                     {/* Modals */}
