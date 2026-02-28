@@ -503,6 +503,12 @@
             const cycleStart = new Date(cycleStartYear, 6, 1);
             const cycleEnd = new Date(cycleStartYear + 1, 5, 30);
 
+            // Calculate accrued leaves based on 2 per month from July to the current month
+            const currentMonthIndex = now.getMonth();
+            const monthsPassed = (now.getFullYear() - cycleStartYear) * 12 + currentMonthIndex - 6 + 1;
+            const missedLeaves = 24 - (totalLeaves || 24);
+            const accruedLeaves = Math.max(0, Math.min(totalLeaves, (monthsPassed * 2) - missedLeaves));
+
             // Filter leaves for this cycle
             const cycleLeaves = leaves.filter(l => {
                 const ld = parseLocalDate(l.startDate);
@@ -510,7 +516,7 @@
             }).sort((a,b) => parseLocalDate(b.startDate) - parseLocalDate(a.startDate));
 
             const usedLeaves = cycleLeaves.reduce((sum, l) => sum + (parseFloat(l.days) || 0), 0);
-            const remainingLeaves = totalLeaves - usedLeaves;
+            const remainingLeaves = accruedLeaves - usedLeaves;
 
             const calcWeekdays = (start, end) => {
                 let count = 0;
@@ -570,8 +576,14 @@
                             </div>
                         ) : (
                             <div className="relative group h-full">
-                                <StatCard title="Total Allowed" value={totalLeaves} icon={Umbrella} colorClass="bg-blue-500 text-blue-500" subtext="Resets every July" />
-                                <button onClick={() => {setEditTotalVal(totalLeaves); setIsEditingTotal(true);}} className="absolute top-3 right-3 p-1.5 bg-gray-900/80 hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow-lg border border-gray-600" title="Edit Total Leaves">
+                                <StatCard 
+                                    title="Accrued Leaves" 
+                                    value={accruedLeaves} 
+                                    icon={Umbrella} 
+                                    colorClass="bg-blue-500 text-blue-500" 
+                                    subtext={`Max Yearly: ${totalLeaves}`} 
+                                />
+                                <button onClick={() => {setEditTotalVal(totalLeaves); setIsEditingTotal(true);}} className="absolute top-3 right-3 p-1.5 bg-gray-900/80 hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg opacity-0 group-hover:opacity-100 transition shadow-lg border border-gray-600" title="Edit Max Yearly Leaves">
                                     <Edit2 size={14}/>
                                 </button>
                             </div>
