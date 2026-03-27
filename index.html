@@ -190,6 +190,7 @@
                                     {week.map((day, dIdx) => {
                                         const isWeekend = dIdx === 0 || dIdx === 6;
                                         const isToday = day.toDateString() === new Date().toDateString();
+                                        const isOtherMonth = day.getMonth() !== currentDate.getMonth();
                                         const holiday = (holidays || []).find(h => h.month === (day.getMonth()+1) && h.day === day.getDate());
                                         const leave = (leaves || []).find(l => { const s=parseLocalDate(l.startDate); const e=parseLocalDate(l.endDate || l.startDate); if(!s || !e) return false; s.setHours(0,0,0,0); e.setHours(23,59,59,999); return day >= s && day <= e; });
                                         return (
@@ -241,7 +242,6 @@
                     const isFinished = ['completed', 'paid'].includes(p.status);
                     const isRevision = p.status === 'revision';
 
-                    // --- REFINED OVERDUE MATH (Exclude Pending/Archive from Red) ---
                     if (deadline) {
                         if (!isFinished) {
                             if (isRevision) {
@@ -253,12 +253,10 @@
                                 onTimeCount++;
                             }
                         } else {
-                            // Once finished, it's counted as "Achieved" in the Blue segment
                             onTimeCount++;
                         }
                     }
 
-                    // Monthly Income Calculation
                     if (p.status === 'paid' && pDate && pDate.getFullYear() === new Date().getFullYear()) {
                         let val = 0;
                         if (isFixed) {
@@ -270,8 +268,8 @@
                     }
                 });
 
-                const totalValid = Math.max(1, onTimeCount + revisionCount + overdueCount);
-                const complianceRatio = Math.round((onTimeCount / totalValid) * 100);
+                const totalForRatio = Math.max(1, onTimeCount + revisionCount + overdueCount);
+                const complianceRatio = Math.round((onTimeCount / totalForRatio) * 100);
 
                 return { months, annualTotal: annualEarned, totalOverdueDays, overdueCount, revisionCount, onTimeCount, complianceRatio };
             }, [projects, clients]);
@@ -354,7 +352,7 @@
                 setIsFiling(false); setFormEntry({ startDate: '', endDate: '', reason: '' });
             };
             return (
-                <div className="flex flex-col lg:flex-row h-full overflow-hidden bg-gray-950">
+                <div className="flex flex-col lg:flex-row h-full overflow-y-auto lg:overflow-hidden bg-gray-950 custom-scrollbar">
                     <div className="w-full lg:w-80 border-r border-gray-800 p-4 shrink-0 overflow-y-auto custom-scrollbar">
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl mb-6 text-center">
                             <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 text-center">Leave Status</h2>
@@ -378,7 +376,7 @@
                             ))}
                         </div>
                     </div>
-                    <div className="flex-1 flex flex-col p-6 overflow-hidden">
+                    <div className="flex-1 flex flex-col p-6 overflow-hidden min-h-[600px]">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-2xl font-bold text-white">{viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
                             <div className="flex gap-1 bg-gray-900 p-1 rounded-xl shadow-lg border border-gray-800"><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()-1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronLeft/></button><button onClick={()=>setViewDate(new Date())} className="px-4 text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-widest">Today</button><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()+1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronRight/></button></div>
@@ -443,12 +441,7 @@
             const val = calculateTicketValue(p, clients);
             const now = new Date(); const start = parseLocalDate(p.startDate || p.createdAt); const deadline = parseLocalDate(p.deadline);
             let deadlineProg = 0; let isOverdue = false;
-            // ONLY detect visual overdue alert if NOT finished
-            if (start && deadline && !['paid', 'completed'].includes(p.status)) { 
-                const total = deadline.getTime() - start.getTime(); 
-                deadlineProg = Math.max(0, Math.min(100, ((now.getTime() - start.getTime()) / total) * 100)); 
-                if (now > deadline) isOverdue = true; 
-            }
+            if (start && deadline && !['paid', 'completed'].includes(p.status)) { const total = deadline.getTime() - start.getTime(); deadlineProg = Math.max(0, Math.min(100, ((now.getTime() - start.getTime()) / total) * 100)); if (now > deadline) isOverdue = true; }
             return (
                 <div onClick={onSelect} className={`bg-gray-900 border p-5 rounded-3xl min-w-[300px] shrink-0 space-y-4 transition group cursor-pointer shadow-xl relative active:scale-95 ${isOverdue ? 'border-red-900/50 hover:border-red-500 shadow-red-950/20' : 'border-gray-800 hover:border-gray-600'}`}>
                     <div className="flex justify-between items-start"><div className="min-w-0 pr-4"><p className="text-[10px] font-bold text-blue-500 uppercase truncate tracking-widest">{p.client}</p><h4 className="text-base font-bold text-white truncate mt-1 leading-tight">{p.name}</h4></div>
@@ -460,7 +453,7 @@
                     </div>
                     <div className="flex justify-between items-center"><div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${getStatusStyles(p.status)}`}>{p.status}</div>{isOverdue && <div className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-red-600 text-white animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.5)]">Overdue</div>}<div className="text-xs font-mono font-bold text-white/90">{showRates ? `$${val.toLocaleString()}` : '****'}</div></div>
                     <div className="space-y-3"><div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Progress</span><span>{p.progress||0}%</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden shadow-inner"><div className="bg-blue-600 h-full transition-all duration-1000" style={{width:`${p.progress||0}%`}}/></div></div>
-                        {deadline && !['paid', 'completed'].includes(p.status) && (<div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Deadline Tracker</span><span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : formatDate(deadline)}</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden shadow-inner"><div className={`h-full transition-all duration-500 ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-gray-600'}`} style={{width:`${deadlineProg}%`}}/></div></div>)}
+                        {deadline && !['paid', 'completed'].includes(p.status) && (<div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Deadline Tracker</span><span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : formatDate(deadline)}</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden"><div className={`h-full transition-all duration-500 ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-gray-600'}`} style={{width:`${deadlineProg}%`}}/></div></div>)}
                     </div>
                 </div>
             );
@@ -479,7 +472,7 @@
             return (
                 <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-950 border border-gray-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl space-y-6">
-                        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">{initialData?'Edit Ticket':'New Ticket'}</h2><button onClick={onClose}><X/></button></div>
+                        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">{initialData?'Edit':'New'} Ticket</h2><button onClick={onClose}><X/></button></div>
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Client</label><select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500" value={form.client} onChange={e=>setForm({...form, client:e.target.value})}>{(clients || []).map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
@@ -635,7 +628,7 @@
                         {view === 'calendar' && (
                             <div className="flex items-center gap-3 bg-gray-950/80 px-2 py-1 rounded-2xl border border-gray-800 shadow-lg">
                                 <button onClick={()=>setCurrentDate(prev => { const d = new Date(prev); d.setMonth(d.getMonth()-1); return d; })} className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-500 transition"><ChevronLeft size={18}/></button>
-                                <span className="text-[10px] font-black uppercase text-gray-200 min-w-[120px] text-center tracking-widest tracking-widest">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
+                                <span className="text-[10px] font-black uppercase text-gray-200 min-w-[120px] text-center tracking-widest">{currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</span>
                                 <button onClick={()=>setCurrentDate(prev => { const d = new Date(prev); d.setMonth(d.getMonth()+1); return d; })} className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-500 transition"><ChevronRight size={18}/></button>
                             </div>
                         )}
