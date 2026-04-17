@@ -24,16 +24,56 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #374151; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4B5563; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        body { background-color: #030712; color: #f3f4f6; overflow: hidden; overscroll-behavior: none; font-family: system-ui, -apple-system, sans-serif; }
+        
+        body { 
+            background-color: #030712; 
+            color: #f3f4f6; 
+            overflow: hidden; 
+            overscroll-behavior: none; 
+            font-family: system-ui, -apple-system, sans-serif; 
+        }
+
         .fade-in { animation: fadeIn 0.2s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
         .editor-content b { font-weight: bold; }
         .editor-content i { font-style: italic; }
         
-        input[type="range"]::-webkit-slider-thumb { border-radius: 999px; background: #3b82f6; cursor: pointer; height: 16px; width: 16px; border: 2px solid white; -webkit-appearance: none; margin-top: -7px; }
-        input[type="range"]::-webkit-slider-runnable-track { width: 100%; height: 2px; cursor: pointer; background: #374151; border-radius: 999px; }
+        /* Draggable Range Styling with Fill Support */
+        input[type="range"] { 
+            -webkit-appearance: none; 
+            background: #1f2937; 
+            cursor: pointer; 
+            width: 100%; 
+            height: 6px; 
+            border-radius: 99px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-runnable-track { 
+            background: transparent; 
+            height: 6px; 
+            border-radius: 99px; 
+        }
+        input[type="range"]::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            height: 16px; 
+            width: 16px; 
+            background: #3b82f6; 
+            border-radius: 50%; 
+            margin-top: -5px; 
+            border: 2px solid #fff;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+            position: relative;
+            z-index: 2;
+        }
+        input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.2); }
+        
+        /* Tablet Support */
+        @media (max-width: 1024px) {
+            .tablet-scroll { overflow-y: auto !important; height: auto !important; max-height: none !important; }
+        }
     </style>
 </head>
 <body>
@@ -52,11 +92,10 @@
             Zap, AlertCircle, PieChart, Activity
         } from 'lucide-react';
 
-        const ICON_OPTIONS = { Star, Flag, Clock, Umbrella, Target, Briefcase, CreditCard, TrendingUp, Box };
-        const STORAGE_KEY = 'animtrack_db_v24';
+        const STORAGE_KEY = 'animtrack_db_v26';
         const FONTS = [
             { label: 'Default UI', value: 'system-ui, -apple-system, sans-serif' },
-            { label: 'Google Sans-like', value: '"Product Sans", "Segoe UI", Roboto, Arial, sans-serif' },
+            { label: 'Google Sans', value: '"Product Sans", "Segoe UI", Roboto, Arial, sans-serif' },
             { label: 'Arial', value: 'Arial, sans-serif' },
             { label: 'Verdana', value: 'Verdana, sans-serif' },
             { label: 'Monospace', value: 'monospace' }
@@ -97,7 +136,7 @@
         const calculateTicketValue = (p, clients = []) => {
             const client = (clients || []).find(c => c.name === p.client);
             if (client?.mode === 'fixed') return parseFloat(client.defaultRate || 0);
-            return (parseFloat(p.shotRate || 0) * parseFloat(p.shotCount || 1));
+            return (parseFloat(p.shotRate || 0) * (parseFloat(p.shotCount) || 1));
         };
 
         const loadData = () => {
@@ -122,13 +161,13 @@
             catch (e) { console.error("Save error", e); }
         };
 
-        // --- UI Sub-Components ---
+        // --- UI Components ---
 
         const StatCard = ({ title, value, icon: Icon, colorClass, subtext, onClick }) => (
-            <div onClick={onClick} className={`bg-gray-800 border border-gray-700 p-4 rounded-2xl flex items-center space-x-4 shadow-lg hover:border-gray-600 transition cursor-pointer group relative overflow-hidden`}>
+            <div onClick={onClick} className={`bg-gray-900 border border-gray-800 p-4 rounded-3xl flex items-center space-x-4 shadow-lg hover:border-gray-700 transition cursor-pointer group relative overflow-hidden`}>
                 <div className={`p-2 rounded-xl ${colorClass} bg-opacity-20`}><Icon className={colorClass.replace('bg-', 'text-')} size={20}/></div>
                 <div className="z-10">
-                    <p className="text-gray-500 text-[10px] font-bold uppercase tracking-wider">{title}</p>
+                    <p className="text-gray-500 text-[9px] font-black uppercase tracking-widest">{title}</p>
                     <h3 className="text-xl font-bold text-white">{value}</h3>
                     {subtext && <p className="text-[10px] text-gray-500 mt-0.5">{subtext}</p>}
                 </div>
@@ -143,18 +182,49 @@
                     if (document.activeElement !== editorRef.current) editorRef.current.innerHTML = value || '';
                 }
             }, [value]);
-            const exec = (cmd, val = null) => { document.execCommand(cmd, false, val); onChange(editorRef.current.innerHTML); };
+
+            const exec = (cmd, val = null) => {
+                document.execCommand(cmd, false, val);
+                onChange(editorRef.current.innerHTML);
+            };
+
+            const resetToDefault = () => {
+                const sel = window.getSelection();
+                const range = document.createRange();
+                range.selectNodeContents(editorRef.current);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                document.execCommand('removeFormat', false, null);
+                document.execCommand('foreColor', false, '#d1d5db');
+                document.execCommand('fontName', false, FONTS[0].value);
+                document.execCommand('fontSize', false, '3');
+                sel.removeAllRanges();
+                onChange(editorRef.current.innerHTML);
+            };
+
             return (
-                <div className="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden flex flex-col h-[300px]">
+                <div className="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden flex flex-col h-[400px]">
                     <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-900 border-b border-gray-800">
-                        <button onClick={()=>exec('bold')} className="p-1 hover:bg-gray-800 rounded text-gray-400"><Bold size={14}/></button>
-                        <button onClick={()=>exec('italic')} className="p-1 hover:bg-gray-800 rounded text-gray-400"><Italic size={14}/></button>
-                        <select onChange={(e)=>exec('fontName', e.target.value)} className="bg-gray-800 text-[10px] p-1 rounded border border-gray-700 text-gray-300 outline-none">
+                        <div className="flex gap-0.5 bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1">
+                            <button onClick={()=>exec('bold')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Bold size={14}/></button>
+                            <button onClick={()=>exec('italic')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Italic size={14}/></button>
+                            <button onClick={()=>exec('underline')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Underline size={14}/></button>
+                        </div>
+                        <div className="flex gap-1 items-center bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1">
+                            <input type="color" onChange={(e)=>exec('foreColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Font Color"/>
+                            <input type="color" onChange={(e)=>exec('hiliteColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Highlight Color"/>
+                        </div>
+                        <select onChange={(e)=>exec('fontName', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none w-24">
                             <option value="">Font...</option>
                             {FONTS.map(f=><option key={f.label} value={f.value}>{f.label}</option>)}
                         </select>
+                        <select onChange={(e)=>exec('fontSize', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none">
+                            <option value="">Size...</option>
+                            {[1,2,3,4,5,6,7].map(s=><option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <button onClick={resetToDefault} className="p-1.5 hover:bg-red-900/20 text-gray-500 hover:text-red-400 rounded-lg ml-auto"><Eraser size={14}/></button>
                     </div>
-                    <div ref={editorRef} className="editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar" contentEditable onInput={(e)=>onChange(e.target.innerHTML)} />
+                    <div ref={editorRef} className="editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar flex-1" contentEditable onInput={(e)=>onChange(e.target.innerHTML)} />
                 </div>
             );
         };
@@ -170,7 +240,7 @@
                 weeks.push(w); 
             }
             return (
-                <div className="flex-1 overflow-auto custom-scrollbar bg-gray-900 border border-gray-800 rounded-2xl m-2">
+                <div className="flex-1 overflow-auto custom-scrollbar bg-gray-900 border border-gray-800 rounded-2xl m-2 shadow-2xl">
                     <div className="grid grid-cols-7 border-b border-gray-800 sticky top-0 bg-gray-950 z-30">
                         {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-[10px] font-bold text-gray-500 text-center py-2 uppercase tracking-widest">{d}</div>)}
                     </div>
@@ -238,6 +308,7 @@
                     const isFixed = client?.mode === 'fixed';
                     const deadline = parseLocalDate(p.deadline);
                     const pDate = parseLocalDate(p.paymentDate || p.updatedAt || p.createdAt);
+                    const compDate = parseLocalDate(p.completionDate || p.paymentDate || p.updatedAt);
                     
                     const isFinished = ['completed', 'paid'].includes(p.status);
                     const isRevision = p.status === 'revision';
@@ -254,6 +325,9 @@
                             }
                         } else {
                             onTimeCount++;
+                            if (compDate > deadline) {
+                                totalOverdueDays += Math.max(0, Math.floor((compDate - deadline) / (1000 * 60 * 60 * 24)));
+                            }
                         }
                     }
 
@@ -262,7 +336,7 @@
                         if (isFixed) {
                             const monthKey = `${p.client}-${pDate.getMonth()}-${pDate.getFullYear()}`;
                             if (!paidFixedTracker.has(monthKey)) { val = parseFloat(client.defaultRate || 0); paidFixedTracker.add(monthKey); }
-                        } else { val = (parseFloat(p.shotRate || 0) * parseInt(p.shotCount || 1)); }
+                        } else { val = (parseFloat(p.shotRate || 0) * (p.shotCount || 1)); }
                         months[pDate.getMonth()].earned += val;
                         annualEarned += val;
                     }
@@ -278,39 +352,36 @@
             
             return (
                 <div className="h-full p-6 overflow-y-auto custom-scrollbar bg-gray-950 space-y-8 pb-20">
-                    <h2 className="text-2xl font-bold text-white flex items-center gap-3"><BarChart2 className="text-blue-500" size={32}/> Production Performance</h2>
-                    
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3"><BarChart2 className="text-blue-500" size={32}/> Production Analytics</h2>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <StatCard title="Annual Earned" value={showRates ? `$${stats.annualTotal.toLocaleString()}` : '****'} icon={TrendingUp} colorClass="bg-emerald-500" />
-                        <StatCard title="Success Ratio" value={`${stats.complianceRatio}%`} icon={Zap} colorClass="bg-blue-500" subtext="Achieved on-time" />
-                        <StatCard title="Active Lateness" value={`${stats.totalOverdueDays}d`} icon={Clock} colorClass="bg-red-500" subtext="Only for In-Progress" />
+                        <StatCard title="Compliance" value={`${stats.complianceRatio}%`} icon={Zap} colorClass="bg-blue-500" subtext="Achieved on-time" />
+                        <StatCard title="Active Overdue" value={stats.overdueCount} icon={Clock} colorClass="bg-red-500" subtext={`${stats.totalOverdueDays}d total delay`} />
                         <StatCard title="In Revision" value={stats.revisionCount} icon={RotateCcw} colorClass="bg-yellow-500" />
                     </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl">
                             <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-8 text-center">Work Distribution Gauge</h3>
-                            <div className="relative h-6 w-full bg-gray-800 rounded-full overflow-hidden flex shadow-inner">
-                                <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${(stats.onTimeCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
-                                <div className="h-full bg-yellow-500 transition-all duration-1000" style={{ width: `${(stats.revisionCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
-                                <div className="h-full bg-red-500 transition-all duration-1000 shadow-[0_0_15px_rgba(239,68,68,0.5)]" style={{ width: `${(stats.overdueCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                            <div className="relative h-8 w-full bg-gray-800 rounded-full overflow-hidden flex shadow-inner border border-gray-700">
+                                <div className="h-full bg-blue-500 transition-all" style={{ width: `${(stats.onTimeCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                                <div className="h-full bg-yellow-500 transition-all" style={{ width: `${(stats.revisionCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                                <div className="h-full bg-red-500 transition-all" style={{ width: `${(stats.overdueCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
                             </div>
                             <div className="grid grid-cols-3 mt-8 text-center gap-4">
-                                <div className="space-y-1"><p className="text-2xl font-black text-blue-400">{stats.onTimeCount}</p><p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">Achieved</p></div>
-                                <div className="space-y-1"><p className="text-2xl font-black text-yellow-500">{stats.revisionCount}</p><p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">Revision</p></div>
-                                <div className="space-y-1"><p className="text-2xl font-black text-red-500">{stats.overdueCount}</p><p className="text-[9px] text-gray-500 uppercase font-black tracking-widest">Overdue</p></div>
+                                <div><p className="text-2xl font-black text-blue-400">{stats.onTimeCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Achieved</p></div>
+                                <div><p className="text-2xl font-black text-yellow-500">{stats.revisionCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Revision</p></div>
+                                <div><p className="text-2xl font-black text-red-500">{stats.overdueCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Overdue</p></div>
                             </div>
                         </div>
-
                         <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl">
-                            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-8">Monthly Revenue Momentum</h3>
+                            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-8 text-center">Revenue Pulse</h3>
                             <div className="h-32 w-full flex items-end justify-between gap-2">
                                 {stats.months.map((m, i) => (
                                     <div key={i} className="flex-1 flex flex-col items-center group h-full justify-end">
-                                        <div className="w-full bg-blue-500/10 rounded-t-lg overflow-hidden relative h-full flex flex-col-reverse">
-                                            <div className="w-full bg-emerald-600 transition-all duration-700 rounded-t-sm group-hover:bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.2)]" style={{ height: `${(m.earned / maxEarned) * 100}%` }}/>
+                                        <div className="w-full bg-emerald-950 rounded-t-sm overflow-hidden relative h-full flex flex-col-reverse">
+                                            <div className="w-full bg-emerald-600 rounded-t-sm" style={{ height: `${(m.earned / maxEarned) * 100}%` }}/>
                                         </div>
-                                        <span className="text-[7px] font-black text-gray-700 mt-2 uppercase tracking-tighter">{m.name}</span>
+                                        <span className="text-[7px] font-black text-gray-700 mt-2 uppercase">{m.name}</span>
                                     </div>
                                 ))}
                             </div>
@@ -352,8 +423,8 @@
                 setIsFiling(false); setFormEntry({ startDate: '', endDate: '', reason: '' });
             };
             return (
-                <div className="flex flex-col lg:flex-row h-full overflow-y-auto lg:overflow-hidden bg-gray-950 custom-scrollbar">
-                    <div className="w-full lg:w-80 border-r border-gray-800 p-4 shrink-0 overflow-y-auto custom-scrollbar">
+                <div className="flex flex-col lg:flex-row h-full overflow-y-auto lg:overflow-hidden bg-gray-950 custom-scrollbar safe-area-bottom">
+                    <div className="w-full lg:w-80 border-r border-gray-800 p-4 shrink-0 overflow-y-auto custom-scrollbar min-h-[400px]">
                         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl mb-6 text-center">
                             <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4 text-center">Leave Status</h2>
                             <div className="grid grid-cols-2 gap-2 text-white"><div className="text-blue-400 font-bold">{accrued} Accrued</div><div className="text-emerald-400 font-bold">{Math.max(0, accrued - used)} Left</div></div>
@@ -376,10 +447,10 @@
                             ))}
                         </div>
                     </div>
-                    <div className="flex-1 flex flex-col p-6 overflow-hidden min-h-[600px]">
+                    <div className="flex-1 flex flex-col p-6 overflow-hidden min-h-[600px] tablet-scroll">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-2xl font-bold text-white">{viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
-                            <div className="flex gap-1 bg-gray-900 p-1 rounded-xl shadow-lg border border-gray-800"><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()-1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronLeft/></button><button onClick={()=>setViewDate(new Date())} className="px-4 text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-widest">Today</button><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()+1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronRight/></button></div>
+                            <div className="flex gap-1 bg-gray-900 p-1 rounded-xl shadow-lg border border-gray-800"><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()-1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronLeft/></button><button onClick={()=>setViewDate(new Date())} className="px-4 text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-widest transition">Today</button><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()+1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronRight/></button></div>
                         </div>
                         <div className="flex-1 grid grid-rows-6 border border-gray-800 rounded-3xl overflow-hidden bg-gray-900/20 shadow-2xl">
                             <div className="grid grid-cols-7 bg-gray-900 border-b border-gray-800">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-[10px] font-bold text-gray-600 text-center py-3 tracking-widest uppercase">{d}</div>)}</div>
@@ -417,7 +488,7 @@
                                 <input className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500" placeholder="Client Name" value={clientForm.name} onChange={e=>setClientForm({...clientForm, name:e.target.value})} />
                                 <select className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm text-white focus:border-blue-500 outline-none" value={clientForm.mode} onChange={e=>setClientForm({...clientForm, mode:e.target.value})}><option value="per_shot">Per Shot</option><option value="fixed">Monthly Fixed</option></select>
                                 {clientForm.mode==='fixed' && <input type="number" className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm text-white focus:border-blue-500" placeholder="Monthly Rate" value={clientForm.defaultRate} onChange={e=>setClientForm({...clientForm, defaultRate:e.target.value})} />}
-                                <button className="col-span-2 bg-blue-600 py-3 rounded-xl font-bold text-xs text-white shadow-lg hover:bg-blue-500 transition" onClick={()=>{ const list = [...(initialClients || [])]; if(editIdx !== null) list[editIdx] = clientForm; else list.push(clientForm); onUpdateLists(list); setClientForm({name:'', mode:'per_shot', defaultRate:0}); setEditIdx(null); }}>{editIdx !== null ? 'UPDATE' : 'ADD CLIENT'}</button>
+                                <button className="col-span-2 bg-blue-600 py-3 rounded-xl font-bold text-xs text-white shadow-lg hover:bg-blue-500 transition" onClick={()=>{ const list = [...(initialClients || [])]; if(editIdx !== null) list[editIdx] = clientForm; else list.push(clientForm); onUpdateLists(list); setClientForm({name:'', mode:'per_shot', defaultRate:0}); setEditIdx(null); }}>{editIdx !== null ? 'UPDATE CLIENT' : 'ADD CLIENT'}</button>
                             </div>
                             <div className="space-y-2">
                                 {(initialClients || []).map((c, i) => (
@@ -437,23 +508,41 @@
             );
         };
 
-        const ProjectCard = ({ p, clients, showRates, onEdit, onSelect, onAdvance, onRevision }) => {
+        const ProjectCard = ({ p, clients, showRates, onEdit, onSelect, onAdvance, onRevision, onUpdate }) => {
             const val = calculateTicketValue(p, clients);
             const now = new Date(); const start = parseLocalDate(p.startDate || p.createdAt); const deadline = parseLocalDate(p.deadline);
             let deadlineProg = 0; let isOverdue = false;
-            if (start && deadline && !['paid', 'completed'].includes(p.status)) { const total = deadline.getTime() - start.getTime(); deadlineProg = Math.max(0, Math.min(100, ((now.getTime() - start.getTime()) / total) * 100)); if (now > deadline) isOverdue = true; }
+            if (start && deadline && !['paid', 'completed'].includes(p.status)) { 
+                const total = deadline.getTime() - start.getTime(); 
+                deadlineProg = Math.max(0, Math.min(100, ((now.getTime() - start.getTime()) / total) * 100)); 
+                if (now > deadline) isOverdue = true; 
+            }
             return (
-                <div onClick={onSelect} className={`bg-gray-900 border p-5 rounded-3xl min-w-[300px] shrink-0 space-y-4 transition group cursor-pointer shadow-xl relative active:scale-95 ${isOverdue ? 'border-red-900/50 hover:border-red-500 shadow-red-950/20' : 'border-gray-800 hover:border-gray-600'}`}>
+                <div onClick={onSelect} className={`bg-gray-900 border p-5 rounded-3xl min-w-[300px] shrink-0 space-y-4 transition group cursor-pointer shadow-xl relative active:scale-95 ${isOverdue ? 'border-red-900/50 hover:border-red-500' : 'border-gray-800 hover:border-gray-600'}`}>
                     <div className="flex justify-between items-start"><div className="min-w-0 pr-4"><p className="text-[10px] font-bold text-blue-500 uppercase truncate tracking-widest">{p.client}</p><h4 className="text-base font-bold text-white truncate mt-1 leading-tight">{p.name}</h4></div>
                         <div className="flex gap-1 shrink-0">
-                            <button onClick={(e)=>{e.stopPropagation(); onRevision(p);}} className="p-2 bg-yellow-600/20 rounded-xl text-yellow-400 hover:bg-yellow-600/40 transition" title="Revision Needed"><Zap size={14}/></button>
-                            <button onClick={(e)=>{e.stopPropagation(); onAdvance(p);}} className="p-2 bg-blue-600/20 rounded-xl text-blue-400 hover:bg-blue-600/40 transition" title="Advance Stage"><ArrowRight size={14}/></button>
+                            <button onClick={(e)=>{e.stopPropagation(); onRevision(p);}} className="p-2 bg-yellow-600/20 rounded-xl text-yellow-400 hover:bg-yellow-600/40 transition"><Zap size={14}/></button>
+                            <button onClick={(e)=>{e.stopPropagation(); onAdvance(p);}} className="p-2 bg-blue-600/20 rounded-xl text-blue-400 hover:bg-blue-600/40 transition"><ArrowRight size={14}/></button>
                             <button onClick={(e)=>{e.stopPropagation(); onEdit(p);}} className="p-2 bg-gray-800 rounded-xl text-gray-500 hover:text-white transition"><Edit2 size={14}/></button>
                         </div>
                     </div>
-                    <div className="flex justify-between items-center"><div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${getStatusStyles(p.status)}`}>{p.status}</div>{isOverdue && <div className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-red-600 text-white animate-pulse shadow-[0_0_8px_rgba(220,38,38,0.5)]">Overdue</div>}<div className="text-xs font-mono font-bold text-white/90">{showRates ? `$${val.toLocaleString()}` : '****'}</div></div>
-                    <div className="space-y-3"><div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Progress</span><span>{p.progress||0}%</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden shadow-inner"><div className="bg-blue-600 h-full transition-all duration-1000" style={{width:`${p.progress||0}%`}}/></div></div>
-                        {deadline && !['paid', 'completed'].includes(p.status) && (<div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Deadline Tracker</span><span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : formatDate(deadline)}</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden"><div className={`h-full transition-all duration-500 ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-gray-600'}`} style={{width:`${deadlineProg}%`}}/></div></div>)}
+                    <div className="flex justify-between items-center"><div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${getStatusStyles(p.status)}`}>{p.status}</div>{isOverdue && <div className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-red-600 text-white animate-pulse">Overdue</div>}<div className="text-xs font-mono font-bold text-white/90">{showRates ? `$${val.toLocaleString()}` : '****'}</div></div>
+                    <div className="space-y-3">
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Progress</span><span>{p.progress||0}%</span></div>
+                            <input 
+                                type="range" 
+                                onClick={e=>e.stopPropagation()} 
+                                onPointerDown={e=>e.stopPropagation()} 
+                                onChange={e=>onUpdate(p.id, {progress: e.target.value})} 
+                                className="cursor-pointer" 
+                                value={p.progress || 0}
+                                style={{
+                                    background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${p.progress || 0}%, #1f2937 ${p.progress || 0}%, #1f2937 100%)`
+                                }}
+                            />
+                        </div>
+                        {deadline && !['paid', 'completed'].includes(p.status) && (<div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Deadline Tracker</span><span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : formatDate(deadline)}</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden shadow-inner"><div className={`h-full transition-all duration-500 ${isOverdue ? 'bg-red-500' : 'bg-gray-600'}`} style={{width:`${deadlineProg}%`}}/></div></div>)}
                     </div>
                 </div>
             );
@@ -472,7 +561,7 @@
             return (
                 <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-950 border border-gray-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl space-y-6">
-                        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">{initialData?'Edit':'New'} Ticket</h2><button onClick={onClose}><X/></button></div>
+                        <div className="flex justify-between items-center"><h2 className="text-2xl font-bold text-white">{initialData?'Edit Ticket':'New Ticket'}</h2><button onClick={onClose}><X/></button></div>
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Client</label><select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500" value={form.client} onChange={e=>setForm({...form, client:e.target.value})}>{(clients || []).map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
@@ -509,7 +598,15 @@
                                 {STATUS_FLOW.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
                             </select>
                             <div className="flex justify-between items-center mb-4 uppercase text-[10px] font-bold text-gray-500 tracking-widest">Progress: {project.progress || 0}%</div>
-                            <input type="range" className="w-full h-2 bg-gray-800 rounded-lg accent-blue-500 cursor-pointer" value={project.progress || 0} onChange={(e)=>onUpdate(project.id, {progress: e.target.value})} />
+                            <input 
+                                type="range" 
+                                className="w-full h-2 bg-gray-800 rounded-lg accent-blue-500 cursor-pointer" 
+                                value={project.progress || 0} 
+                                onChange={(e)=>onUpdate(project.id, {progress: e.target.value})} 
+                                style={{
+                                    background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${project.progress || 0}%, #1f2937 ${project.progress || 0}%, #1f2937 100%)`
+                                }}
+                            />
                         </div>
                         <div className="space-y-2"><label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1 opacity-70 uppercase">Production Notes</label><RichTextEditor value={project.notes || ''} onChange={(html)=>onUpdate(project.id, {notes: html})} /></div>
                     </div>
@@ -559,8 +656,7 @@
 
             const handleSaveProject = (p) => {
                 setData(prev => {
-                    const isPaid = p.status === 'paid';
-                    const isCompleted = p.status === 'completed';
+                    const isPaid = p.status === 'paid'; const isCompleted = p.status === 'completed';
                     const projects = prev.projects || [];
                     const list = editingProject ? projects.map(x=>x.id===p.id?{...x, ...p, paymentDate: (isPaid && !x.paymentDate) ? formatDate(new Date()) : x.paymentDate, completionDate: (isCompleted && !x.completionDate) ? formatDate(new Date()) : x.completionDate }:x) : [...projects, {...p, id:crypto.randomUUID(), paymentDate: isPaid ? formatDate(new Date()) : '', completionDate: isCompleted ? formatDate(new Date()) : ''}];
                     return { ...prev, projects: list };
@@ -569,7 +665,7 @@
 
             const handleAdvanceStage = (p) => {
                 setData(prev => {
-                    const projects = prev.projects.map(x => {
+                    const projects = (prev.projects || []).map(x => {
                         if (x.id === p.id) {
                             const curIdx = STATUS_FLOW.indexOf(x.status);
                             const nextStatus = STATUS_FLOW[Math.min(curIdx + 1, STATUS_FLOW.length - 1)];
@@ -610,6 +706,7 @@
             const handleDeleteLeave = (id) => setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(x=>x.id!==id) }));
             const handleUpdateHolidays = (h) => setData(prev => ({ ...prev, holidays: h }));
             const handleUpdateTotalLeaves = (v) => setData(prev => ({ ...prev, totalLeaves: v }));
+            const handleImport = (d) => { if(d && d.projects) setData(d); };
 
             if (loading) return null;
 
@@ -645,7 +742,17 @@
                                     <div className="flex items-center gap-3 border-b border-gray-800/50 pb-2 uppercase text-[10px] font-black text-gray-500 tracking-widest">In Progress</div>
                                     <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
                                         {statusGroups.active.map(p => (
-                                            <ProjectCard key={p.id} p={p} clients={data.clients} showRates={showRates} onEdit={(proj)=>{setEditingProject(proj); setIsModalOpen(true);}} onSelect={()=>setActiveProject(p)} onAdvance={handleAdvanceStage} onRevision={handleRevisionNeeded} />
+                                            <ProjectCard 
+                                                key={p.id} 
+                                                p={p} 
+                                                clients={data.clients} 
+                                                showRates={showRates} 
+                                                onEdit={(proj)=>{setEditingProject(proj); setIsModalOpen(true);}} 
+                                                onSelect={()=>setActiveProject(p)} 
+                                                onAdvance={handleAdvanceStage} 
+                                                onRevision={handleRevisionNeeded}
+                                                onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x)}))}
+                                            />
                                         ))}
                                     </div>
                                 </div>
@@ -660,7 +767,7 @@
                                                         <div key={item.id} className="flex justify-between items-center group/item hover:bg-gray-800/50 p-2 rounded-xl transition cursor-pointer" onClick={()=>setActiveProject(item)}>
                                                             <div className="min-w-0 pr-2"><p className="text-[11px] font-bold text-gray-300 truncate">{item.name}</p><p className="text-[9px] text-gray-500 font-mono tracking-tighter">{showRates ? `$${calculateTicketValue(item, data.clients).toLocaleString()}` : '****'}</p></div>
                                                             <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition shrink-0">
-                                                                <button onClick={(e)=>{e.stopPropagation(); handleRevertStage(item);}} className="p-1.5 bg-gray-800 rounded-lg text-orange-400 hover:bg-gray-700 transition" title="Revert step"><RotateCcw size={12}/></button>
+                                                                <button onClick={(e)=>{e.stopPropagation(); handleRevertStage(item);}} className="p-1.5 bg-gray-800 rounded-lg text-orange-400 hover:bg-gray-700 transition" title="Revert stage"><RotateCcw size={12}/></button>
                                                                 <button onClick={(e)=>{e.stopPropagation(); handleAdvanceStage(item);}} className="p-1.5 bg-gray-800 rounded-lg text-emerald-400 hover:bg-gray-700 transition" title="Mark Paid"><ArrowRight size={12}/></button>
                                                             </div>
                                                         </div>
@@ -694,8 +801,8 @@
                         {view === 'stats' && <StatisticsView projects={data.projects} clients={data.clients} leaves={data.leaves} totalLeaves={data.totalLeaves} showRates={showRates} />}
                         {view === 'leaves' && <TimeOffView leaves={data.leaves} holidays={data.holidays} totalLeaves={data.totalLeaves} onAddLeave={handleAddLeave} onDeleteLeave={handleDeleteLeave} onUpdateHolidays={handleUpdateHolidays} onUpdateTotalLeaves={handleUpdateTotalLeaves} />}
                     </main>
-                    <ProjectModal isOpen={isModalOpen} onClose={()=>setIsModalOpen(false)} onSave={handleSaveProject} onDelete={(id)=>setData(prev=>({...prev, projects:prev.projects.filter(x=>x.id!==id)}))} initialData={editingProject} clients={data.clients} />
-                    <ListManager isOpen={isListOpen} onClose={()=>setIsListOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={(d)=>setData(d)} />
+                    <ProjectModal isOpen={isModalOpen} onClose={()=>setIsModalOpen(false)} onSave={handleSaveProject} onDelete={(id)=>setData(prev=>({...prev, projects:(prev.projects || []).filter(x=>x.id!==id)}))} initialData={editingProject} clients={data.clients} />
+                    <ListManager isOpen={isListOpen} onClose={()=>setIsListOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImport} />
                     {activeProject && <ProjectDetails project={activeProject} onClose={()=>setActiveProject(null)} onEdit={()=>{ setEditingProject(activeProject); setIsModalOpen(true); setActiveProject(null); }} onAdvance={handleAdvanceStage} onRevert={handleRevertStage} onRevision={handleRevisionNeeded} onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x)}))} />}
                 </div>
             );
