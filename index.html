@@ -82,7 +82,6 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        // Strictly verified original icons to prevent module crash
         import { 
             Plus, DollarSign, Clock, CheckCircle, Box, Calendar, Edit2, 
             Trash2, X, Save, TrendingUp, CreditCard, Briefcase, 
@@ -180,10 +179,9 @@
             const gistId = safeGetStorage(LOCAL_GIST_KEY);
             if (token && gistId) {
                 try {
-                    // Aggressive cache-busting timestamp
+                    // Safe cache-busting timestamp without custom headers to avoid CORS blocks
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-                        cache: 'no-store'
+                        headers: { Authorization: `token ${token}` }
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -726,7 +724,7 @@
                 showToast('Downloading from GitHub...', 'info');
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache' }
+                        headers: { Authorization: `token ${token}` }
                     });
                     
                     if (!res.ok) throw new Error(`GitHub Error ${res.status}: ${res.statusText}`);
@@ -966,7 +964,7 @@
                     {/* GLOBAL TOAST NOTIFICATION */}
                     {toast && (
                         <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-2xl shadow-2xl border z-50 flex items-center gap-3 slide-up ${toast.type === 'error' ? 'bg-red-950/90 border-red-900 text-red-200' : toast.type === 'success' ? 'bg-emerald-950/90 border-emerald-900 text-emerald-200' : 'bg-gray-800/90 border-gray-700 text-white'}`}>
-                            <AlertCircle size={20} className={toast.type === 'error' ? 'text-red-500' : toast.type === 'success' ? 'text-emerald-500' : 'text-blue-500'}/>
+                            <Box size={20} className={toast.type === 'error' ? 'text-red-500' : toast.type === 'success' ? 'text-emerald-500' : 'text-blue-500'}/>
                             <p className="text-sm font-bold">{toast.msg}</p>
                         </div>
                     )}
