@@ -89,10 +89,15 @@
             Layers, ArrowRight, Download, Upload, FileJson, LayoutGrid, CalendarDays,
             BarChart2, Target, Star, Folder, RotateCcw, Bold, Italic, Underline, 
             List, ListOrdered, Eye, EyeOff, Type, Highlighter, Eraser, Minus, Umbrella, Flag,
-            Zap, AlertCircle, PieChart, Activity
+            Zap, AlertCircle, PieChart, Activity, ShieldCheck
         } from 'lucide-react';
 
-        const STORAGE_KEY = 'animtrack_db_v27';
+        // --- GITHUB CLOUD SYNC SETTINGS ---
+        const GIST_FILENAME = 'animtrack_data.json';
+        const LOCAL_GIST_KEY = 'animtrack_gist_id';
+        const GITHUB_TOKEN_KEY = 'animtrack_gh_token'; // Key for local storage
+        const STORAGE_KEY = 'animtrack_db_v27'; // Local fallback key
+        
         const FONTS = [
             { label: 'Default UI', value: 'system-ui, -apple-system, sans-serif' },
             { label: 'Google Sans', value: '"Product Sans", "Segoe UI", Roboto, Arial, sans-serif' },
@@ -139,7 +144,9 @@
             return (parseFloat(p.shotRate || 0) * (parseFloat(p.shotCount) || 1));
         };
 
-        const loadData = () => {
+        // --- DATA SYNC LOGIC ---
+
+        const loadLocalData = () => {
             try {
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
@@ -152,13 +159,89 @@
                         totalLeaves: p.totalLeaves ?? 22
                     };
                 }
-            } catch (e) { console.error("Load error", e); }
+            } catch (e) { console.error("Local load error", e); }
             return { projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 };
         };
 
-        const saveData = (data) => {
+        const saveLocalData = (data) => {
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } 
-            catch (e) { console.error("Save error", e); }
+            catch (e) { console.error("Local save error", e); }
+        };
+
+        const fetchCloudData = async () => {
+            const token = localStorage.getItem(GITHUB_TOKEN_KEY);
+            const gistId = localStorage.getItem(LOCAL_GIST_KEY);
+            if (token && gistId) {
+                try {
+                    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+                        headers: { Authorization: `token ${token}` }
+                    });
+                    if (res.ok) {
+                        const gist = await res.json();
+                        const content = gist.files[GIST_FILENAME]?.content;
+                        if (content) {
+                            const p = JSON.parse(content);
+                            return {
+                                projects: Array.isArray(p.projects) ? p.projects : [],
+                                clients: Array.isArray(p.clients) ? p.clients : [],
+                                holidays: Array.isArray(p.holidays) ? p.holidays : [],
+                                leaves: Array.isArray(p.leaves) ? p.leaves : [],
+                                totalLeaves: p.totalLeaves ?? 22
+                            };
+                        }
+                    }
+                } catch (e) { console.error("Cloud fetch failed, using local.", e); }
+            }
+            return null; 
+        };
+
+        let syncTimeout = null;
+        const saveCloudData = (data) => {
+            saveLocalData(data); // Always keep immediate local backup
+
+            if (syncTimeout) clearTimeout(syncTimeout);
+            
+            // Debounce network requests
+            syncTimeout = setTimeout(async () => {
+                const token = localStorage.getItem(GITHUB_TOKEN_KEY);
+                if (!token) return; // Exit if no token is configured
+
+                const gistId = localStorage.getItem(LOCAL_GIST_KEY);
+                const content = JSON.stringify(data, null, 2);
+                
+                try {
+                    if (gistId) {
+                        await fetch(`https://api.github.com/gists/${gistId}`, {
+                            method: 'PATCH',
+                            headers: { 
+                                Authorization: `token ${token}`, 
+                                'Content-Type': 'application/json' 
+                            },
+                            body: JSON.stringify({
+                                description: "AnimTrack Cloud Backup",
+                                files: { [GIST_FILENAME]: { content } }
+                            })
+                        });
+                    } else {
+                        const res = await fetch('https://api.github.com/gists', {
+                            method: 'POST',
+                            headers: { 
+                                Authorization: `token ${token}`, 
+                                'Content-Type': 'application/json' 
+                            },
+                            body: JSON.stringify({
+                                description: "AnimTrack Cloud Backup",
+                                public: false,
+                                files: { [GIST_FILENAME]: { content } }
+                            })
+                        });
+                        if (res.ok) {
+                            const gist = await res.json();
+                            localStorage.setItem(LOCAL_GIST_KEY, gist.id);
+                        }
+                    }
+                } catch(e) { console.error("Cloud push failed.", e); }
+            }, 1500); 
         };
 
         // --- UI Components ---
@@ -527,6 +610,9 @@
                                 <button onClick={()=>{const b=new Blob([JSON.stringify(allData)],{type:'application/json'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='animtrack_backup.json'; a.click();}} className="bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-emerald-600/20 transition flex items-center justify-center gap-2"><Download size={14}/> EXPORT</button>
                                 <button onClick={()=>{ const input=document.createElement('input'); input.type='file'; input.accept='.json'; input.onchange=e=>{ const f=e.target.files[0]; const reader=new FileReader(); reader.onload=ev=>{ onImport(JSON.parse(ev.target.result)); onClose(); }; reader.readAsText(f); }; input.click(); }} className="bg-blue-600/10 text-blue-500 border border-blue-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-blue-600/20 transition flex items-center justify-center gap-2"><Upload size={14}/> IMPORT</button>
                             </div>
+                            <div className="border-t border-gray-800 pt-6">
+                                <button onClick={() => { localStorage.removeItem(GITHUB_TOKEN_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">RESET CLOUD SYNC KEY</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -640,6 +726,10 @@
         );
 
         function App() {
+            // --- UI State for Key Prompt ---
+            const [githubToken, setGithubToken] = useState(localStorage.getItem(GITHUB_TOKEN_KEY) || '');
+            const [tokenInput, setTokenInput] = useState('');
+
             const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 });
             const [loading, setLoading] = useState(true);
             const [view, setView] = useState('board');
@@ -649,9 +739,32 @@
             const [editingProject, setEditingProject] = useState(null);
             const [showRates, setShowRates] = useState(true);
             const [currentDate, setCurrentDate] = useState(new Date());
+            const isFirstMount = useRef(true);
 
-            useEffect(() => { setData(loadData()); setLoading(false); }, []);
-            useEffect(() => { if (!loading) saveData(data); }, [data, loading]);
+            // --- Initialization: Only run if we have a token ---
+            useEffect(() => {
+                if (!githubToken) return;
+
+                const initData = async () => {
+                    const cloudData = await fetchCloudData();
+                    if (cloudData) {
+                        setData(cloudData);
+                    } else {
+                        setData(loadLocalData());
+                    }
+                    setLoading(false);
+                };
+                initData(); 
+            }, [githubToken]);
+
+            // --- Auto-Save on Data Change ---
+            useEffect(() => { 
+                if (isFirstMount.current) {
+                    isFirstMount.current = false;
+                    return;
+                }
+                if (!loading && githubToken) saveCloudData(data); 
+            }, [data, loading, githubToken]);
 
             const statusGroups = useMemo(() => {
                 const g = { active: [], completed: [], paid: [] };
@@ -732,6 +845,41 @@
                     return { ...prev, projects };
                 });
             };
+
+            const handleSaveToken = () => {
+                if (tokenInput.trim()) {
+                    localStorage.setItem(GITHUB_TOKEN_KEY, tokenInput.trim());
+                    setGithubToken(tokenInput.trim());
+                }
+            };
+
+            // --- The Authentication Screen ---
+            if (!githubToken) {
+                return (
+                    <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-4">
+                        <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6 fade-in">
+                            <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-500/20 shadow-inner">
+                                <ShieldCheck className="text-blue-500" size={32} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
+                            <p className="text-gray-400 text-sm text-center">Enter your Fine-Grained GitHub PAT to enable cloud saves. This key is saved locally and never sent to a third party.</p>
+                            
+                            <div className="space-y-2">
+                                <input 
+                                    type="password" 
+                                    value={tokenInput}
+                                    onChange={e => setTokenInput(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500 text-center font-mono" 
+                                    placeholder="ghp_xxxxxxxxxxxxxxxxx" 
+                                    onKeyDown={e => { if(e.key === 'Enter') handleSaveToken(); }}
+                                />
+                            </div>
+
+                            <button onClick={handleSaveToken} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold text-sm shadow-lg transition">Authenticate & Load</button>
+                        </div>
+                    </div>
+                );
+            }
 
             if (loading) return null;
 
