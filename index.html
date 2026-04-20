@@ -89,7 +89,7 @@
             Layers, ArrowRight, Download, Upload, FileJson, LayoutGrid, CalendarDays,
             BarChart2, Target, Star, Folder, RotateCcw, Bold, Italic, Underline, 
             List, ListOrdered, Eye, EyeOff, Type, Highlighter, Eraser, Minus, Umbrella, Flag,
-            Zap, AlertCircle, PieChart, Activity, ShieldCheck, RefreshCw
+            Zap, AlertCircle, PieChart, Activity, ShieldCheck, RefreshCw, CloudDownload
         } from 'lucide-react';
 
         // --- GITHUB CLOUD SYNC SETTINGS ---
@@ -156,11 +156,12 @@
                         clients: Array.isArray(p.clients) ? p.clients : [],
                         holidays: Array.isArray(p.holidays) ? p.holidays : [],
                         leaves: Array.isArray(p.leaves) ? p.leaves : [],
-                        totalLeaves: p.totalLeaves ?? 22
+                        totalLeaves: p.totalLeaves ?? 22,
+                        lastUpdated: p.lastUpdated || Date.now()
                     };
                 }
             } catch (e) { console.error("Local load error", e); }
-            return { projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 };
+            return { projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22, lastUpdated: Date.now() };
         };
 
         const saveLocalData = (data) => {
@@ -173,8 +174,14 @@
             const gistId = localStorage.getItem(LOCAL_GIST_KEY);
             if (token && gistId) {
                 try {
-                    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-                        headers: { Authorization: `token ${token}` }
+                    // Added cache-busting timestamp to bypass GitHub's aggressive caching
+                    const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
+                        headers: { 
+                            Authorization: `token ${token}`,
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        },
+                        cache: 'no-store'
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -186,7 +193,8 @@
                                 clients: Array.isArray(p.clients) ? p.clients : [],
                                 holidays: Array.isArray(p.holidays) ? p.holidays : [],
                                 leaves: Array.isArray(p.leaves) ? p.leaves : [],
-                                totalLeaves: p.totalLeaves ?? 22
+                                totalLeaves: p.totalLeaves ?? 22,
+                                lastUpdated: p.lastUpdated || Date.now()
                             };
                         }
                     }
@@ -197,6 +205,8 @@
 
         let syncTimeout = null;
         const saveCloudData = (data) => {
+            // Give data a fresh timestamp on every save
+            data.lastUpdated = Date.now();
             saveLocalData(data); // Always keep immediate local backup
 
             if (syncTimeout) clearTimeout(syncTimeout);
@@ -726,10 +736,11 @@
         );
 
         function App() {
-            // --- UI State for Key Prompt ---
+            // --- UI State ---
             const [githubToken, setGithubToken] = useState(localStorage.getItem(GITHUB_TOKEN_KEY) || '');
             const [tokenInput, setTokenInput] = useState('');
             const [isAuthenticating, setIsAuthenticating] = useState(false);
+            const [isSyncing, setIsSyncing] = useState(false);
 
             const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 });
             const [loading, setLoading] = useState(true);
@@ -740,9 +751,21 @@
             const [editingProject, setEditingProject] = useState(null);
             const [showRates, setShowRates] = useState(true);
             const [currentDate, setCurrentDate] = useState(new Date());
+            
             const isFirstMount = useRef(true);
 
-            // --- Initialization: Only run if we have a token ---
+            // --- Manual Sync Button Function ---
+            const forcePullFromCloud = async () => {
+                if (!githubToken) return;
+                setIsSyncing(true);
+                const cloudData = await fetchCloudData();
+                if (cloudData) {
+                    setData(cloudData);
+                }
+                setTimeout(() => setIsSyncing(false), 800); // Visual feedback
+            };
+
+            // --- Initialization ---
             useEffect(() => {
                 if (!githubToken) return;
 
@@ -754,16 +777,16 @@
                         setData(loadLocalData());
                     }
                     setLoading(false);
+                    
+                    // Crucial: Wait a beat before allowing auto-saves, so the initial load doesn't trigger a push
+                    setTimeout(() => { isFirstMount.current = false; }, 1000);
                 };
                 initData(); 
             }, [githubToken]);
 
             // --- Auto-Save on Data Change ---
             useEffect(() => { 
-                if (isFirstMount.current) {
-                    isFirstMount.current = false;
-                    return;
-                }
+                if (isFirstMount.current) return;
                 if (!loading && githubToken) saveCloudData(data); 
             }, [data, loading, githubToken]);
 
@@ -798,7 +821,13 @@
             const handleDeleteLeave = (id) => setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(x=>x.id!==id) }));
             const handleUpdateHolidays = (h) => setData(prev => ({ ...prev, holidays: h }));
             const handleUpdateTotalLeaves = (v) => setData(prev => ({ ...prev, totalLeaves: v }));
-            const handleImport = (d) => { if(d && d.projects) setData(d); };
+            
+            const handleImport = (d) => { 
+                if(d && d.projects) {
+                    setData(d); 
+                    saveCloudData(d); // Force push immediately upon import
+                }
+            };
 
             const handleSaveProject = (p) => {
                 setData(prev => {
@@ -847,7 +876,6 @@
                 });
             };
 
-            // --- AUTO DISCOVERY LOGIC ADDED HERE ---
             const handleSaveToken = async () => {
                 if (!tokenInput.trim()) return;
                 setIsAuthenticating(true);
@@ -861,19 +889,10 @@
                     
                     if (res.ok) {
                         const gists = await res.json();
-                        // Scan the user's gists to find our specific file
                         const existingGist = gists.find(g => g.files && g.files[GIST_FILENAME]);
-                        
-                        if (existingGist) {
-                            console.log("Existing data found. Syncing...");
-                            localStorage.setItem(LOCAL_GIST_KEY, existingGist.id);
-                        } else {
-                            console.log("No previous data found. Starting fresh.");
-                        }
+                        if (existingGist) localStorage.setItem(LOCAL_GIST_KEY, existingGist.id);
                     }
-                } catch (e) { 
-                    console.error("Could not scan for existing gists.", e); 
-                }
+                } catch (e) { console.error("Could not scan for existing gists.", e); }
                 
                 setGithubToken(token);
                 setIsAuthenticating(false);
@@ -931,10 +950,13 @@
                                 <button onClick={()=>setCurrentDate(prev => { const d = new Date(prev); d.setMonth(d.getMonth()+1); return d; })} className="p-1.5 hover:bg-gray-800 rounded-lg text-gray-500 transition"><ChevronRight size={18}/></button>
                             </div>
                         )}
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                             <button onClick={()=>setShowRates(!showRates)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-400 hover:text-white transition shadow-sm">{showRates?<Eye size={18}/>:<EyeOff size={18}/>}</button>
+                            <button onClick={forcePullFromCloud} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-blue-400 hover:text-white transition shadow-sm" title="Pull Latest from Cloud">
+                                <CloudDownload size={18} className={isSyncing ? 'animate-bounce' : ''} />
+                            </button>
                             <button onClick={()=>setIsListOpen(true)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-400 hover:text-white transition shadow-sm"><Settings size={18}/></button>
-                            <button onClick={()=>{setEditingProject(null); setIsModalOpen(true);}} className="bg-blue-600 hover:bg-blue-500 text-white h-10 px-5 rounded-2xl flex items-center shadow-lg transition font-bold uppercase text-[10px] tracking-widest">New Ticket</button>
+                            <button onClick={()=>{setEditingProject(null); setIsModalOpen(true);}} className="bg-blue-600 hover:bg-blue-500 text-white h-10 px-5 ml-1 rounded-2xl flex items-center shadow-lg transition font-bold uppercase text-[10px] tracking-widest">New Ticket</button>
                         </div>
                     </header>
                     <main className="flex-1 relative overflow-hidden bg-gray-950">
