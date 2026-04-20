@@ -34,14 +34,15 @@
         }
 
         .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
         .editor-content b { font-weight: bold; }
         .editor-content i { font-style: italic; }
         
-        /* Draggable Range Styling with Fill Support */
         input[type="range"] { 
             -webkit-appearance: none; 
             background: #1f2937; 
@@ -70,7 +71,6 @@
         }
         input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.2); }
         
-        /* Tablet Support */
         @media (max-width: 1024px) {
             .tablet-scroll { overflow-y: auto !important; height: auto !important; max-height: none !important; }
         }
@@ -89,7 +89,7 @@
             Layers, ArrowRight, Download, Upload, FileJson, LayoutGrid, CalendarDays,
             BarChart2, Target, Star, Folder, RotateCcw, Bold, Italic, Underline, 
             List, ListOrdered, Eye, EyeOff, Type, Highlighter, Eraser, Minus, Umbrella, Flag,
-            Zap, AlertCircle, PieChart, Activity, ShieldCheck, RefreshCw
+            Zap, AlertCircle, PieChart, Activity, ShieldCheck, RefreshCw, CloudDownload, Info
         } from 'lucide-react';
 
         // --- GITHUB CLOUD SYNC SETTINGS ---
@@ -98,7 +98,7 @@
         const GITHUB_TOKEN_KEY = 'animtrack_gh_token'; 
         const STORAGE_KEY = 'animtrack_db_v27'; 
 
-        // --- SAFE STORAGE WRAPPERS (Prevents Safari crashes) ---
+        // --- SAFE STORAGE WRAPPERS ---
         const safeGetStorage = (key) => { try { return localStorage.getItem(key); } catch(e) { return null; } };
         const safeSetStorage = (key, val) => { try { localStorage.setItem(key, val); } catch(e) {} };
         const safeRemoveStorage = (key) => { try { localStorage.removeItem(key); } catch(e) {} };
@@ -172,66 +172,6 @@
         const saveLocalData = (data) => {
             try { safeSetStorage(STORAGE_KEY, JSON.stringify(data)); } 
             catch (e) { console.error("Local save error", e); }
-        };
-
-        const fetchCloudData = async () => {
-            const token = safeGetStorage(GITHUB_TOKEN_KEY);
-            const gistId = safeGetStorage(LOCAL_GIST_KEY);
-            if (token && gistId) {
-                try {
-                    const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { 
-                            Authorization: `token ${token}`,
-                            'Cache-Control': 'no-cache',
-                            'Pragma': 'no-cache'
-                        },
-                        cache: 'no-store'
-                    });
-                    if (res.ok) {
-                        const gist = await res.json();
-                        const content = gist.files[GIST_FILENAME]?.content;
-                        if (content) {
-                            const p = JSON.parse(content);
-                            return {
-                                projects: Array.isArray(p.projects) ? p.projects : [],
-                                clients: Array.isArray(p.clients) ? p.clients : [],
-                                holidays: Array.isArray(p.holidays) ? p.holidays : [],
-                                leaves: Array.isArray(p.leaves) ? p.leaves : [],
-                                totalLeaves: p.totalLeaves ?? 22,
-                                lastUpdated: p.lastUpdated || Date.now()
-                            };
-                        }
-                    }
-                } catch (e) { console.error("Cloud fetch failed", e); }
-            }
-            return null; 
-        };
-
-        let syncTimeout = null;
-        const autoSaveCloudData = (data) => {
-            const dataToSave = { ...data, lastUpdated: Date.now() }; 
-            saveLocalData(dataToSave); 
-
-            if (syncTimeout) clearTimeout(syncTimeout);
-            
-            // Background auto-save (debounced)
-            syncTimeout = setTimeout(async () => {
-                const token = safeGetStorage(GITHUB_TOKEN_KEY);
-                if (!token) return;
-
-                const gistId = safeGetStorage(LOCAL_GIST_KEY);
-                const content = JSON.stringify(dataToSave, null, 2);
-                
-                try {
-                    if (gistId) {
-                        await fetch(`https://api.github.com/gists/${gistId}`, {
-                            method: 'PATCH',
-                            headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ files: { [GIST_FILENAME]: { content } } })
-                        });
-                    }
-                } catch(e) { console.error("Auto cloud push failed.", e); }
-            }, 3000); 
         };
 
         // --- UI Components ---
@@ -601,7 +541,7 @@
                                 <button onClick={()=>{ const input=document.createElement('input'); input.type='file'; input.accept='.json'; input.onchange=e=>{ const f=e.target.files[0]; const reader=new FileReader(); reader.onload=ev=>{ onImport(JSON.parse(ev.target.result)); onClose(); }; reader.readAsText(f); }; input.click(); }} className="bg-blue-600/10 text-blue-500 border border-blue-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-blue-600/20 transition flex items-center justify-center gap-2"><Upload size={14}/> IMPORT</button>
                             </div>
                             <div className="border-t border-gray-800 pt-6">
-                                <button onClick={() => { safeRemoveStorage(GITHUB_TOKEN_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">LOGOUT (REMOVE DEVICE KEY)</button>
+                                <button onClick={() => { safeRemoveStorage(GITHUB_TOKEN_KEY); safeRemoveStorage(LOCAL_GIST_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">LOGOUT (REMOVE DEVICE KEY)</button>
                             </div>
                         </div>
                     </div>
@@ -720,9 +660,13 @@
             const [githubToken, setGithubToken] = useState(safeGetStorage(GITHUB_TOKEN_KEY) || '');
             const [tokenInput, setTokenInput] = useState('');
             const [isAuthenticating, setIsAuthenticating] = useState(false);
-            const [isSyncing, setIsSyncing] = useState(false);
-            const [isPushing, setIsPushing] = useState(false);
-            const [pushSuccess, setPushSuccess] = useState(false);
+            
+            // --- Diagnostic State ---
+            const [toast, setToast] = useState(null);
+            const showToast = (msg, type = 'info') => {
+                setToast({ msg, type });
+                setTimeout(() => setToast(null), 4000);
+            };
 
             const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 });
             const [loading, setLoading] = useState(true);
@@ -739,47 +683,77 @@
             // --- MANUAL PULL FROM CLOUD ---
             const forcePullFromCloud = async () => {
                 if (!githubToken) return;
-                setIsSyncing(true);
-                const cloudData = await fetchCloudData();
-                if (cloudData) setData(cloudData);
-                setTimeout(() => setIsSyncing(false), 800);
+                
+                const token = safeGetStorage(GITHUB_TOKEN_KEY);
+                const gistId = safeGetStorage(LOCAL_GIST_KEY);
+                
+                if (!gistId) {
+                    showToast('❌ No Cloud File ID found. Try clicking Push first to create one.', 'error');
+                    return;
+                }
+
+                showToast('Downloading from GitHub...', 'info');
+                try {
+                    const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
+                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache' }
+                    });
+                    
+                    if (!res.ok) throw new Error(`GitHub Error ${res.status}: ${res.statusText}`);
+                    
+                    const gist = await res.json();
+                    const content = gist.files[GIST_FILENAME]?.content;
+                    
+                    if (!content) throw new Error('File not found inside your Gist.');
+                    
+                    const parsedData = JSON.parse(content);
+                    setData(parsedData);
+                    saveLocalData(parsedData);
+                    showToast('✅ Success! Downloaded latest cloud data.', 'success');
+                    
+                } catch (e) {
+                    console.error(e);
+                    showToast(`❌ Pull Failed: ${e.message}`, 'error');
+                }
             };
 
             // --- MANUAL PUSH TO CLOUD ---
             const forcePushToCloud = async () => {
                 if (!githubToken) return;
-                setIsPushing(true);
                 
                 const token = safeGetStorage(GITHUB_TOKEN_KEY);
-                const gistId = safeGetStorage(LOCAL_GIST_KEY);
+                let gistId = safeGetStorage(LOCAL_GIST_KEY);
                 const dataToSave = { ...data, lastUpdated: Date.now() };
                 const content = JSON.stringify(dataToSave, null, 2);
                 
+                showToast('Uploading to GitHub...', 'info');
+                
                 try {
                     if (gistId) {
-                        await fetch(`https://api.github.com/gists/${gistId}`, {
+                        // Update existing
+                        const res = await fetch(`https://api.github.com/gists/${gistId}`, {
                             method: 'PATCH',
                             headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
                             body: JSON.stringify({ files: { [GIST_FILENAME]: { content } } })
                         });
+                        if (!res.ok) throw new Error(`GitHub Error ${res.status}: Check Token Permissions.`);
+                        showToast('✅ Success! Overwrote cloud data.', 'success');
                     } else {
+                        // Create New
                         const res = await fetch('https://api.github.com/gists', {
                             method: 'POST',
                             headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
                             body: JSON.stringify({ description: "AnimTrack Cloud Backup", public: false, files: { [GIST_FILENAME]: { content } } })
                         });
-                        if (res.ok) {
-                            const gist = await res.json();
-                            safeSetStorage(LOCAL_GIST_KEY, gist.id);
-                        }
+                        if (!res.ok) throw new Error(`GitHub Error ${res.status}: Check Token Permissions.`);
+                        
+                        const gist = await res.json();
+                        safeSetStorage(LOCAL_GIST_KEY, gist.id);
+                        showToast('✅ Created new Cloud File! Sync enabled.', 'success');
                     }
                     saveLocalData(dataToSave);
-                    setPushSuccess(true);
-                    setTimeout(() => setPushSuccess(false), 2000);
                 } catch(e) {
-                    console.error("Manual push failed.", e);
-                } finally {
-                    setIsPushing(false);
+                    console.error(e);
+                    showToast(`❌ Push Failed: ${e.message}`, 'error');
                 }
             };
 
@@ -803,7 +777,11 @@
             // --- Auto-Save on Data Change ---
             useEffect(() => { 
                 if (isFirstMount.current) return;
-                if (!loading && githubToken) autoSaveCloudData(data); 
+                if (!loading && githubToken) {
+                    // Let's only save locally on every change to save API calls. 
+                    // Cloud saves will be handled by the Manual Buttons to prevent overwrite loops.
+                    saveLocalData({ ...data, lastUpdated: Date.now() });
+                }
             }, [data, loading, githubToken]);
 
             const statusGroups = useMemo(() => {
@@ -841,7 +819,7 @@
             const handleImport = (d) => { 
                 if(d && d.projects) {
                     setData(d); 
-                    // Let the user push manually if they want, or let auto-sync catch it
+                    showToast('Local JSON Imported! Click the Green Upload button to push it to the cloud.', 'info');
                 }
             };
 
@@ -907,10 +885,16 @@
                         const gists = await res.json();
                         const existingGist = gists.find(g => g.files && g.files[GIST_FILENAME]);
                         if (existingGist) safeSetStorage(LOCAL_GIST_KEY, existingGist.id);
+                        setGithubToken(token);
+                    } else {
+                        alert(`❌ GitHub rejected this Token. Error: ${res.status}\n\nMake sure the token has "Gists" Read/Write permissions.`);
+                        safeRemoveStorage(GITHUB_TOKEN_KEY);
                     }
-                } catch (e) { console.error("Could not scan for existing gists.", e); }
+                } catch (e) { 
+                    alert(`Network Error: Could not reach GitHub API.\n\n${e.message}`);
+                    safeRemoveStorage(GITHUB_TOKEN_KEY);
+                }
                 
-                setGithubToken(token);
                 setIsAuthenticating(false);
             };
 
@@ -923,7 +907,7 @@
                                 {isAuthenticating ? <RefreshCw className="text-blue-500 animate-spin" size={32} /> : <ShieldCheck className="text-blue-500" size={32} />}
                             </div>
                             <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
-                            <p className="text-gray-400 text-sm text-center">Enter your Fine-Grained GitHub PAT. We will scan your account to link your existing data.</p>
+                            <p className="text-gray-400 text-sm text-center">Enter your GitHub PAT to continue. Make sure the token has <b className="text-white">Gists (Read & Write)</b> permissions enabled.</p>
                             
                             <div className="space-y-2">
                                 <input 
@@ -938,7 +922,7 @@
                             </div>
 
                             <button onClick={handleSaveToken} disabled={isAuthenticating} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold text-sm shadow-lg transition disabled:opacity-50">
-                                {isAuthenticating ? 'Scanning GitHub...' : 'Authenticate & Sync'}
+                                {isAuthenticating ? 'Connecting to GitHub...' : 'Authenticate & Sync'}
                             </button>
                         </div>
                     </div>
@@ -949,6 +933,15 @@
 
             return (
                 <div className="fixed inset-0 bg-gray-950 flex flex-col">
+                    
+                    {/* GLOBAL TOAST NOTIFICATION */}
+                    {toast && (
+                        <div className={`fixed bottom-6 right-6 px-6 py-4 rounded-2xl shadow-2xl border z-50 flex items-center gap-3 slide-up ${toast.type === 'error' ? 'bg-red-950/90 border-red-900 text-red-200' : toast.type === 'success' ? 'bg-emerald-950/90 border-emerald-900 text-emerald-200' : 'bg-gray-800/90 border-gray-700 text-white'}`}>
+                            <Info size={20} className={toast.type === 'error' ? 'text-red-500' : toast.type === 'success' ? 'text-emerald-500' : 'text-blue-500'}/>
+                            <p className="text-sm font-bold">{toast.msg}</p>
+                        </div>
+                    )}
+
                     <header className="h-16 bg-gray-900/80 backdrop-blur-xl border-b border-gray-800 flex items-center justify-between px-6 z-40">
                         <div className="flex items-center gap-6">
                             <div className="flex items-center gap-3"><Box className="text-blue-500" size={24}/><h1 className="text-lg font-black text-white uppercase tracking-widest">ANIM<span className="text-blue-500">TRACK</span></h1></div>
@@ -971,12 +964,12 @@
                             
                             {/* MANUAL SYNC CONTROLS */}
                             <div className="flex bg-gray-900 border border-gray-800 rounded-2xl p-1 shadow-inner">
-                                <button onClick={forcePullFromCloud} className="w-8 h-8 flex items-center justify-center rounded-xl text-blue-400 hover:bg-gray-800 hover:text-blue-300 transition" title="Pull Latest Data">
-                                    <Download size={14} className={isSyncing ? 'animate-bounce' : ''} />
+                                <button onClick={forcePullFromCloud} className="w-8 h-8 flex items-center justify-center rounded-xl text-blue-400 hover:bg-gray-800 hover:text-blue-300 transition" title="Pull Latest Data from GitHub">
+                                    <Download size={14} />
                                 </button>
                                 <div className="w-px h-5 bg-gray-800 my-auto mx-1"></div>
-                                <button onClick={forcePushToCloud} className="w-8 h-8 flex items-center justify-center rounded-xl text-emerald-400 hover:bg-gray-800 hover:text-emerald-300 transition" title="Push Data to Cloud">
-                                    {isPushing ? <RefreshCw size={14} className="animate-spin" /> : pushSuccess ? <CheckCircle size={14} className="text-emerald-500" /> : <Upload size={14} />}
+                                <button onClick={forcePushToCloud} className="w-8 h-8 flex items-center justify-center rounded-xl text-emerald-400 hover:bg-gray-800 hover:text-emerald-300 transition" title="Force Push to GitHub">
+                                    <Upload size={14} />
                                 </button>
                             </div>
 
