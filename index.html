@@ -82,6 +82,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
+        // Reverted to original verified icons to prevent module crash
         import { 
             Plus, DollarSign, Clock, CheckCircle, Box, Calendar, Edit2, 
             Trash2, X, Save, TrendingUp, CreditCard, Briefcase, 
@@ -89,7 +90,7 @@
             Layers, ArrowRight, Download, Upload, FileJson, LayoutGrid, CalendarDays,
             BarChart2, Target, Star, Folder, RotateCcw, Bold, Italic, Underline, 
             List, ListOrdered, Eye, EyeOff, Type, Highlighter, Eraser, Minus, Umbrella, Flag,
-            Zap, AlertCircle, PieChart, Activity, ShieldCheck, RefreshCw, CloudDownload
+            Zap, AlertCircle, PieChart, Activity
         } from 'lucide-react';
 
         // --- GITHUB CLOUD SYNC SETTINGS ---
@@ -97,6 +98,11 @@
         const LOCAL_GIST_KEY = 'animtrack_gist_id';
         const GITHUB_TOKEN_KEY = 'animtrack_gh_token'; 
         const STORAGE_KEY = 'animtrack_db_v27'; 
+
+        // --- SAFE STORAGE WRAPPERS (Prevents Safari crashes) ---
+        const safeGetStorage = (key) => { try { return localStorage.getItem(key); } catch(e) { return null; } };
+        const safeSetStorage = (key, val) => { try { localStorage.setItem(key, val); } catch(e) {} };
+        const safeRemoveStorage = (key) => { try { localStorage.removeItem(key); } catch(e) {} };
         
         const FONTS = [
             { label: 'Default UI', value: 'system-ui, -apple-system, sans-serif' },
@@ -148,7 +154,7 @@
 
         const loadLocalData = () => {
             try {
-                const saved = localStorage.getItem(STORAGE_KEY);
+                const saved = safeGetStorage(STORAGE_KEY);
                 if (saved) {
                     const p = JSON.parse(saved);
                     return {
@@ -165,13 +171,13 @@
         };
 
         const saveLocalData = (data) => {
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } 
+            try { safeSetStorage(STORAGE_KEY, JSON.stringify(data)); } 
             catch (e) { console.error("Local save error", e); }
         };
 
         const fetchCloudData = async () => {
-            const token = localStorage.getItem(GITHUB_TOKEN_KEY);
-            const gistId = localStorage.getItem(LOCAL_GIST_KEY);
+            const token = safeGetStorage(GITHUB_TOKEN_KEY);
+            const gistId = safeGetStorage(LOCAL_GIST_KEY);
             if (token && gistId) {
                 try {
                     // Added cache-busting timestamp to bypass GitHub's aggressive caching
@@ -205,19 +211,18 @@
 
         let syncTimeout = null;
         const saveCloudData = (data) => {
-            // Give data a fresh timestamp on every save
-            data.lastUpdated = Date.now();
-            saveLocalData(data); // Always keep immediate local backup
+            const dataToSave = { ...data, lastUpdated: Date.now() }; // Immutable timestamp update
+            saveLocalData(dataToSave); // Always keep immediate local backup
 
             if (syncTimeout) clearTimeout(syncTimeout);
             
             // Debounce network requests
             syncTimeout = setTimeout(async () => {
-                const token = localStorage.getItem(GITHUB_TOKEN_KEY);
+                const token = safeGetStorage(GITHUB_TOKEN_KEY);
                 if (!token) return;
 
-                const gistId = localStorage.getItem(LOCAL_GIST_KEY);
-                const content = JSON.stringify(data, null, 2);
+                const gistId = safeGetStorage(LOCAL_GIST_KEY);
+                const content = JSON.stringify(dataToSave, null, 2);
                 
                 try {
                     if (gistId) {
@@ -247,7 +252,7 @@
                         });
                         if (res.ok) {
                             const gist = await res.json();
-                            localStorage.setItem(LOCAL_GIST_KEY, gist.id);
+                            safeSetStorage(LOCAL_GIST_KEY, gist.id);
                         }
                     }
                 } catch(e) { console.error("Cloud push failed.", e); }
@@ -621,7 +626,7 @@
                                 <button onClick={()=>{ const input=document.createElement('input'); input.type='file'; input.accept='.json'; input.onchange=e=>{ const f=e.target.files[0]; const reader=new FileReader(); reader.onload=ev=>{ onImport(JSON.parse(ev.target.result)); onClose(); }; reader.readAsText(f); }; input.click(); }} className="bg-blue-600/10 text-blue-500 border border-blue-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-blue-600/20 transition flex items-center justify-center gap-2"><Upload size={14}/> IMPORT</button>
                             </div>
                             <div className="border-t border-gray-800 pt-6">
-                                <button onClick={() => { localStorage.removeItem(GITHUB_TOKEN_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">LOGOUT (REMOVE DEVICE KEY)</button>
+                                <button onClick={() => { safeRemoveStorage(GITHUB_TOKEN_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">LOGOUT (REMOVE DEVICE KEY)</button>
                             </div>
                         </div>
                     </div>
@@ -737,7 +742,7 @@
 
         function App() {
             // --- UI State ---
-            const [githubToken, setGithubToken] = useState(localStorage.getItem(GITHUB_TOKEN_KEY) || '');
+            const [githubToken, setGithubToken] = useState(safeGetStorage(GITHUB_TOKEN_KEY) || '');
             const [tokenInput, setTokenInput] = useState('');
             const [isAuthenticating, setIsAuthenticating] = useState(false);
             const [isSyncing, setIsSyncing] = useState(false);
@@ -759,10 +764,8 @@
                 if (!githubToken) return;
                 setIsSyncing(true);
                 const cloudData = await fetchCloudData();
-                if (cloudData) {
-                    setData(cloudData);
-                }
-                setTimeout(() => setIsSyncing(false), 800); // Visual feedback
+                if (cloudData) setData(cloudData);
+                setTimeout(() => setIsSyncing(false), 800);
             };
 
             // --- Initialization ---
@@ -777,9 +780,7 @@
                         setData(loadLocalData());
                     }
                     setLoading(false);
-                    
-                    // Crucial: Wait a beat before allowing auto-saves, so the initial load doesn't trigger a push
-                    setTimeout(() => { isFirstMount.current = false; }, 1000);
+                    setTimeout(() => { isFirstMount.current = false; }, 1000); // Lock auto-saves during boot
                 };
                 initData(); 
             }, [githubToken]);
@@ -880,7 +881,7 @@
                 if (!tokenInput.trim()) return;
                 setIsAuthenticating(true);
                 const token = tokenInput.trim();
-                localStorage.setItem(GITHUB_TOKEN_KEY, token);
+                safeSetStorage(GITHUB_TOKEN_KEY, token);
                 
                 try {
                     const res = await fetch('https://api.github.com/gists', {
@@ -890,7 +891,7 @@
                     if (res.ok) {
                         const gists = await res.json();
                         const existingGist = gists.find(g => g.files && g.files[GIST_FILENAME]);
-                        if (existingGist) localStorage.setItem(LOCAL_GIST_KEY, existingGist.id);
+                        if (existingGist) safeSetStorage(LOCAL_GIST_KEY, existingGist.id);
                     }
                 } catch (e) { console.error("Could not scan for existing gists.", e); }
                 
@@ -904,7 +905,7 @@
                     <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-4">
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6 fade-in">
                             <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-500/20 shadow-inner">
-                                {isAuthenticating ? <RefreshCw className="text-blue-500 animate-spin" size={32} /> : <ShieldCheck className="text-blue-500" size={32} />}
+                                {isAuthenticating ? <RotateCcw className="text-blue-500 animate-spin" size={32} /> : <CheckCircle className="text-blue-500" size={32} />}
                             </div>
                             <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
                             <p className="text-gray-400 text-sm text-center">Enter your Fine-Grained GitHub PAT. We will scan your account to link your existing data.</p>
@@ -953,7 +954,7 @@
                         <div className="flex items-center gap-2">
                             <button onClick={()=>setShowRates(!showRates)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-400 hover:text-white transition shadow-sm">{showRates?<Eye size={18}/>:<EyeOff size={18}/>}</button>
                             <button onClick={forcePullFromCloud} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-blue-400 hover:text-white transition shadow-sm" title="Pull Latest from Cloud">
-                                <CloudDownload size={18} className={isSyncing ? 'animate-bounce' : ''} />
+                                <Download size={18} className={isSyncing ? 'animate-bounce' : ''} />
                             </button>
                             <button onClick={()=>setIsListOpen(true)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-400 hover:text-white transition shadow-sm"><Settings size={18}/></button>
                             <button onClick={()=>{setEditingProject(null); setIsModalOpen(true);}} className="bg-blue-600 hover:bg-blue-500 text-white h-10 px-5 ml-1 rounded-2xl flex items-center shadow-lg transition font-bold uppercase text-[10px] tracking-widest">New Ticket</button>
