@@ -82,6 +82,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
+        // Strictly verified original icons to prevent module crash
         import { 
             Plus, DollarSign, Clock, CheckCircle, Box, Calendar, Edit2, 
             Trash2, X, Save, TrendingUp, CreditCard, Briefcase, 
@@ -179,9 +180,10 @@
             const gistId = safeGetStorage(LOCAL_GIST_KEY);
             if (token && gistId) {
                 try {
-                    // Safe cache-busting timestamp without custom headers to avoid CORS blocks
+                    // Aggressive cache-busting timestamp
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}` }
+                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                        cache: 'no-store'
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -219,6 +221,7 @@
 
         const RichTextEditor = ({ value, onChange }) => {
             const editorRef = useRef(null);
+            const [isExpanded, setIsExpanded] = useState(false);
             
             useEffect(() => {
                 if (editorRef.current && value !== editorRef.current.innerHTML) {
@@ -264,35 +267,55 @@
             };
 
             return (
-                <div className="bg-gray-950 border border-gray-800 rounded-xl overflow-hidden flex flex-col h-[400px]">
-                    <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-900 border-b border-gray-800">
-                        <div className="flex gap-0.5 bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1">
-                            <button onClick={()=>exec('bold')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Bold size={14}/></button>
-                            <button onClick={()=>exec('italic')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Italic size={14}/></button>
-                            <button onClick={()=>exec('underline')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Underline size={14}/></button>
+                <>
+                    {/* Backdrop overlay for Focus Mode */}
+                    {isExpanded && (
+                        <div 
+                            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] fade-in" 
+                            onClick={() => setIsExpanded(false)} 
+                        />
+                    )}
+                    
+                    <div className={`${isExpanded ? 'fixed inset-4 md:inset-12 z-[100] shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-3xl fade-in' : 'h-[400px] rounded-xl'} bg-gray-950 border border-gray-800 overflow-hidden flex flex-col`}>
+                        <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-900 border-b border-gray-800 shrink-0">
+                            <div className="flex gap-0.5 bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1">
+                                <button onClick={()=>exec('bold')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Bold size={14}/></button>
+                                <button onClick={()=>exec('italic')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Italic size={14}/></button>
+                                <button onClick={()=>exec('underline')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Underline size={14}/></button>
+                            </div>
+                            <div className="flex gap-1 items-center bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1 text-gray-400">
+                                <input type="color" onChange={(e)=>exec('foreColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Font Color"/>
+                                <input type="color" onChange={(e)=>exec('hiliteColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Highlight Color"/>
+                            </div>
+                            <select onChange={(e)=>exec('fontName', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none w-24">
+                                <option value="">Font...</option>
+                                {FONTS.map(f=><option key={f.label} value={f.value}>{f.label}</option>)}
+                            </select>
+                            <select onChange={(e)=>exec('fontSize', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none">
+                                <option value="">Size...</option>
+                                {[1,2,3,4,5,6,7].map(s=><option key={s} value={s}>{s}</option>)}
+                            </select>
+                            
+                            {/* Grouped Right Tools */}
+                            <div className="flex items-center ml-auto gap-2">
+                                <button onClick={resetToDefault} className="p-1.5 hover:bg-red-900/20 text-gray-500 hover:text-red-400 rounded-lg"><Eraser size={14}/></button>
+                                <button 
+                                    onClick={() => setIsExpanded(!isExpanded)} 
+                                    className={`py-1.5 px-4 rounded-lg font-bold text-[10px] uppercase tracking-widest transition ${isExpanded ? 'bg-blue-600 text-white shadow-lg hover:bg-blue-500' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 border border-gray-700'}`}
+                                >
+                                    {isExpanded ? 'Collapse' : 'Expand'}
+                                </button>
+                            </div>
                         </div>
-                        <div className="flex gap-1 items-center bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1 text-gray-400">
-                            <input type="color" onChange={(e)=>exec('foreColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Font Color"/>
-                            <input type="color" onChange={(e)=>exec('hiliteColor', e.target.value)} className="w-4 h-4 bg-transparent border-0 cursor-pointer" title="Highlight Color"/>
-                        </div>
-                        <select onChange={(e)=>exec('fontName', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none w-24">
-                            <option value="">Font...</option>
-                            {FONTS.map(f=><option key={f.label} value={f.value}>{f.label}</option>)}
-                        </select>
-                        <select onChange={(e)=>exec('fontSize', e.target.value)} className="bg-gray-950 text-[10px] p-1.5 rounded border border-gray-800 text-gray-300 outline-none">
-                            <option value="">Size...</option>
-                            {[1,2,3,4,5,6,7].map(s=><option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <button onClick={resetToDefault} className="p-1.5 hover:bg-red-900/20 text-gray-500 hover:text-red-400 rounded-lg ml-auto"><Eraser size={14}/></button>
+                        <div 
+                            ref={editorRef} 
+                            className={`editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar flex-1 ${isExpanded ? 'text-base leading-relaxed' : ''}`} 
+                            contentEditable 
+                            onPaste={handlePaste}
+                            onInput={(e)=>onChange(e.target.innerHTML)} 
+                        />
                     </div>
-                    <div 
-                        ref={editorRef} 
-                        className="editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar flex-1" 
-                        contentEditable 
-                        onPaste={handlePaste}
-                        onInput={(e)=>onChange(e.target.innerHTML)} 
-                    />
-                </div>
+                </>
             );
         };
 
@@ -931,7 +954,7 @@
                     <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-4">
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6 fade-in">
                             <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-500/20 shadow-inner">
-                                {isAuthenticating ? <RotateCcw className="text-blue-500 animate-spin" size={32} /> : <CheckCircle className="text-blue-500" size={32} />}
+                                <CheckCircle className="text-blue-500" size={32} />
                             </div>
                             <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
                             <p className="text-gray-400 text-sm text-center">Enter your GitHub PAT to continue. Make sure the token has <b className="text-white">Gists (Read & Write)</b> permissions enabled.</p>
