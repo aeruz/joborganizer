@@ -643,7 +643,6 @@
                             </div>
                             <div className="space-y-2">
                                 {(reminders || []).map((r) => {
-                                    // Calculate actual alert time for display
                                     const [h, m] = r.time.split(':').map(Number);
                                     const d = new Date(); d.setHours(h, m - r.offset, 0, 0);
                                     const alertTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -654,7 +653,7 @@
                                                 <p className="font-bold text-white text-sm">{r.title}</p>
                                                 <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Alerts at <span className="text-yellow-500 font-black">{alertTimeStr}</span></p>
                                             </div>
-                                            <button onClick={()=>onUpdateLists(reminders.filter(x=>x.id!==r.id))} className="text-red-500 transition p-2 bg-gray-800 rounded-lg hover:bg-red-500/10"><Trash2 size={16}/></button>
+                                            <button onClick={()=>onUpdateReminders(reminders.filter(x=>x.id!==r.id))} className="text-red-500 transition p-2 bg-gray-800 rounded-lg hover:bg-red-500/10"><Trash2 size={16}/></button>
                                         </div>
                                     );
                                 })}
@@ -825,7 +824,7 @@
                 return () => clearInterval(alarmCheck);
             }, [reminders]);
 
-            // 3. Weather Fetcher (Cebu City API - Updates every 30 mins)[cite: 1]
+            // 3. Weather Fetcher (Cebu City API - Updates every 30 mins)
             useEffect(() => {
                 const fetchWeather = async () => {
                     try {
@@ -873,71 +872,71 @@
             }, [time.getMonth()]);
 
             return (
-                <div className="fixed inset-0 bg-[#030712] z-[100] p-8 md:p-16 flex flex-col cursor-default fade-in overflow-hidden">
+                <div className="fixed inset-0 bg-[#030712] z-[100] p-[4vh] flex flex-col cursor-default fade-in overflow-hidden h-screen w-screen">
                     
                     {/* ALARM OVERLAY */}
                     {activeAlarm && (
                         <div className="fixed inset-0 z-[200] bg-red-950/95 flex flex-col items-center justify-center fade-in backdrop-blur-md">
                             <div className="absolute inset-0 bg-red-500/20 pulse-slow mix-blend-overlay"></div>
                             <Bell size={120} className="text-red-500 mb-8 animate-bounce drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]" />
-                            <h1 className="text-7xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
-                            <p className="text-5xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
-                            <p className="text-3xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
-                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
+                            <h1 className="text-[10vh] font-black text-white mb-6 uppercase tracking-widest text-center leading-none">Reminder</h1>
+                            <p className="text-[6vh] font-bold text-red-200 text-center max-w-[80vw] leading-tight">{activeAlarm.title}</p>
+                            <p className="text-[4vh] text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
+                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-[4vh] font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
                         </div>
                     )}
 
                     {/* Exit Button */}
-                    <button onClick={onExit} className="absolute top-8 right-8 p-4 text-gray-600 hover:text-white transition group flex items-center gap-2 z-10">
-                        <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
+                    <button onClick={onExit} className="absolute top-[4vh] right-[4vh] p-[2vh] text-gray-600 hover:text-white transition group flex items-center gap-2 z-10">
+                        <span className="text-[1.5vh] font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
                         <X size={32} />
                     </button>
                     
                     {/* HEADER: CLOCK & WEATHER */}
-                    <div className="flex justify-between items-start mb-16">
+                    <div className="flex justify-between items-start mb-[6vh]">
                          <div>
-                             <h1 className="text-[8rem] font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.05)' }}>
+                             <h1 className="text-[16vh] font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.05)' }}>
                                  {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/(AM|PM)/, '').trim()}
-                                 <span className="text-[4rem] text-gray-500 ml-4 tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
+                                 <span className="text-[6vh] text-gray-500 ml-[2vw] tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
                              </h1>
-                             <p className="text-3xl text-blue-500 font-bold tracking-tight mt-2">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                             <p className="text-[4vh] text-blue-500 font-bold tracking-tight mt-[1vh]">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
                          </div>
-                         <div className="text-right flex flex-col items-end pt-4">
-                             <div className="flex items-center gap-4 text-5xl font-black text-yellow-500"><Cloud size={48} className="text-gray-500"/> {weather.temp}</div>
-                             <p className="text-2xl text-gray-500 font-bold uppercase tracking-widest mt-2">{weather.condition}</p>
+                         <div className="text-right flex flex-col items-end pt-[2vh]">
+                             <div className="flex items-center gap-[1vw] text-[6vh] font-black text-yellow-500"><Cloud size={48} className="text-gray-500"/> {weather.temp}</div>
+                             <p className="text-[3vh] text-gray-500 font-bold uppercase tracking-widest mt-[1vh]">{weather.condition}</p>
                          </div>
                     </div>
 
                     {/* GRID: SHOT PROGRESS & CALENDAR */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 h-full min-h-0">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-[4vw] flex-1 h-full min-h-0">
                          
                          {/* LEFT: Active Project Dashboard */}
-                         <div className="col-span-2 bg-gray-900/40 rounded-[3rem] p-12 border border-gray-800 shadow-2xl flex flex-col justify-center relative overflow-hidden backdrop-blur-xl">
+                         <div className="col-span-2 bg-gray-900/40 rounded-[4vh] p-[6vh] border border-gray-800 shadow-2xl flex flex-col justify-center relative overflow-hidden backdrop-blur-xl">
                             {/* Ambient Glow */}
-                            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -z-10 mix-blend-screen pointer-events-none"></div>
+                            <div className="absolute top-0 right-0 w-[40vh] h-[40vh] bg-blue-500/5 rounded-full blur-3xl -z-10 mix-blend-screen pointer-events-none"></div>
                             
                             {activeProject ? (
-                                <div className="space-y-12 relative z-10">
+                                <div className="space-y-[6vh] relative z-10">
                                     <div className="flex justify-between items-end">
-                                        <div className="pr-8">
-                                            <div className="flex items-center gap-3 mb-4">
-                                                <Briefcase size={20} className="text-blue-500" />
-                                                <p className="text-blue-400 font-black uppercase tracking-widest text-xl">{activeProject.client}</p>
+                                        <div className="pr-[4vw]">
+                                            <div className="flex items-center gap-[1vw] mb-[2vh]">
+                                                <Briefcase size={24} className="text-blue-500" />
+                                                <p className="text-blue-400 font-black uppercase tracking-widest text-[2.5vh]">{activeProject.client}</p>
                                             </div>
-                                            <h2 className="text-6xl font-black text-white truncate max-w-4xl leading-tight">{activeProject.name}</h2>
+                                            <h2 className="text-[7vh] font-black text-white truncate max-w-[50vw] leading-tight pb-1">{activeProject.name}</h2>
                                         </div>
                                         <div className="text-right shrink-0">
-                                            <p className="text-gray-500 font-black uppercase tracking-widest text-sm mb-3">Pipeline Status</p>
-                                            <div className={`px-6 py-2 rounded-2xl border text-xl font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
+                                            <p className="text-gray-500 font-black uppercase tracking-widest text-[2vh] mb-[1.5vh]">Pipeline Status</p>
+                                            <div className={`px-[2vw] py-[1vh] rounded-[2vh] border text-[2.5vh] font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
                                         </div>
                                     </div>
                                     
-                                    <div className="space-y-6 pt-8">
-                                        <div className="flex justify-between text-2xl font-bold text-gray-400 uppercase tracking-widest">
+                                    <div className="space-y-[3vh] pt-[4vh]">
+                                        <div className="flex justify-between text-[3vh] font-bold text-gray-400 uppercase tracking-widest">
                                             <span>Current Progress</span>
                                             <span className="text-white font-black">{activeProject.progress || 0}%</span>
                                         </div>
-                                        <div className="w-full bg-gray-950 h-10 rounded-full overflow-hidden border border-gray-800 shadow-inner">
+                                        <div className="w-full bg-gray-950 h-[4vh] rounded-full overflow-hidden border border-gray-800 shadow-inner">
                                             <div 
                                                 className="h-full bg-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out relative" 
                                                 style={{ width: `${activeProject.progress || 0}%` }}
@@ -949,21 +948,21 @@
                                 </div>
                             ) : (
                                 <div className="text-center py-10 relative z-10">
-                                    <div className="w-24 h-24 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-6"><Target size={40} className="text-gray-600"/></div>
-                                    <h2 className="text-4xl font-black text-gray-500 tracking-tight">No Active Shots</h2>
-                                    <p className="text-gray-600 mt-4 text-2xl font-medium">Dashboard is waiting for a new ticket to track.</p>
+                                    <div className="w-[12vh] h-[12vh] bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-[3vh]"><Target size={48} className="text-gray-600"/></div>
+                                    <h2 className="text-[5vh] font-black text-gray-500 tracking-tight">No Active Shots</h2>
+                                    <p className="text-gray-600 mt-[2vh] text-[3vh] font-medium">Dashboard is waiting for a new ticket to track.</p>
                                 </div>
                             )}
                          </div>
 
                          {/* RIGHT: Calendar & Reminders Layout */}
-                         <div className="flex flex-col gap-8 h-full min-h-0">
+                         <div className="flex flex-col gap-[3vh] h-full min-h-0">
                               
                               {/* Mini TV Calendar */}
-                              <div className="bg-gray-900/40 rounded-[2.5rem] p-8 border border-gray-800 shadow-xl backdrop-blur-xl">
-                                  <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
-                                  <div className="grid grid-cols-7 gap-1 mb-2">
-                                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} className="text-center text-[10px] font-black text-gray-600 uppercase">{d}</div>)}
+                              <div className="bg-gray-900/40 rounded-[4vh] p-[4vh] border border-gray-800 shadow-xl backdrop-blur-xl shrink-0">
+                                  <h3 className="text-[2vh] font-black text-gray-500 uppercase tracking-widest mb-[2vh] text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
+                                  <div className="grid grid-cols-7 gap-1 mb-1">
+                                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} className="text-center text-[1.5vh] font-black text-gray-600 uppercase">{d}</div>)}
                                   </div>
                                   <div className="grid grid-cols-7 gap-1">
                                       {tvCalendar.flat().map((day, dIdx) => {
@@ -978,9 +977,9 @@
                                           });
 
                                           return (
-                                              <div key={dIdx} className={`aspect-square flex flex-col items-center justify-center rounded-xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400'}`}>
-                                                  <span className={`text-sm font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
-                                                  {hasDeadline && <div className={`w-1.5 h-1.5 rounded-full absolute bottom-1.5 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
+                                              <div key={dIdx} className={`h-[4vh] flex flex-col items-center justify-center rounded-[1vh] relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400'}`}>
+                                                  <span className={`text-[2vh] font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
+                                                  {hasDeadline && <div className={`w-[0.5vh] h-[0.5vh] rounded-full absolute bottom-[0.5vh] ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
                                               </div>
                                           );
                                       })}
@@ -988,30 +987,29 @@
                               </div>
 
                               {/* Today's Alarms */}
-                              <div className="bg-gray-900/40 rounded-[2.5rem] p-8 border border-gray-800 shadow-xl flex-1 flex flex-col overflow-hidden backdrop-blur-xl">
-                                  <div className="flex items-center gap-3 mb-6 shrink-0">
-                                      <Bell size={18} className="text-yellow-500"/>
-                                      <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest">Active Reminders</h3>
+                              <div className="bg-gray-900/40 rounded-[4vh] p-[4vh] border border-gray-800 shadow-xl flex-1 flex flex-col overflow-hidden backdrop-blur-xl">
+                                  <div className="flex items-center gap-[1vw] mb-[3vh] shrink-0">
+                                      <Bell size={24} className="text-yellow-500"/>
+                                      <h3 className="text-[2vh] font-black text-gray-500 uppercase tracking-widest">Active Reminders</h3>
                                   </div>
-                                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-[2vh]">
                                       {(reminders || []).map(r => {
                                           const [h, m] = r.time.split(':').map(Number);
                                           const d = new Date(); d.setHours(h, m, 0);
                                           const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                           
-                                          // Note: "offset" logic is handled silently for alerts. List just shows event time.
                                           return (
-                                              <div key={r.id} className="bg-gray-950/50 p-4 rounded-2xl border border-gray-800/50">
-                                                  <p className="text-yellow-500 font-mono font-bold text-xs mb-1">{timeStr}</p>
-                                                  <p className="text-white font-bold text-base">{r.title}</p>
-                                                  {r.offset > 0 && <p className="text-gray-600 text-[9px] uppercase font-bold mt-2">Alerts {r.offset}m prior</p>}
+                                              <div key={r.id} className="bg-gray-950/50 p-[2vh] rounded-[2vh] border border-gray-800/50">
+                                                  <p className="text-yellow-500 font-mono font-bold text-[1.5vh] mb-[0.5vh]">{timeStr}</p>
+                                                  <p className="text-white font-bold text-[2vh] leading-tight">{r.title}</p>
+                                                  {r.offset > 0 && <p className="text-gray-600 text-[1.2vh] uppercase font-bold mt-[1vh]">Alerts {r.offset}m prior</p>}
                                               </div>
                                           );
                                       })}
                                       {(reminders || []).length === 0 && (
                                           <div className="h-full flex flex-col items-center justify-center opacity-50">
-                                              <Bell size={24} className="text-gray-600 mb-2"/>
-                                              <p className="text-gray-500 font-bold text-sm">No alarms set</p>
+                                              <Bell size={32} className="text-gray-600 mb-[1vh]"/>
+                                              <p className="text-gray-500 font-bold text-[2vh]">No alarms set</p>
                                           </div>
                                       )}
                                   </div>
