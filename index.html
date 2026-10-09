@@ -33,10 +33,13 @@
             font-family: system-ui, -apple-system, sans-serif; 
         }
 
-        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
         .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
@@ -82,7 +85,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        // Icons
+        // Verified Icons
         import { 
             Plus, DollarSign, Clock, CheckCircle, Box, Calendar, Edit2, 
             Trash2, X, Save, TrendingUp, CreditCard, Briefcase, 
@@ -90,7 +93,7 @@
             Layers, ArrowRight, Download, Upload, FileJson, LayoutGrid, CalendarDays,
             BarChart2, Target, Star, Folder, RotateCcw, Bold, Italic, Underline, 
             List, ListOrdered, Eye, EyeOff, Type, Highlighter, Eraser, Minus, Umbrella, Flag,
-            Zap, AlertCircle, PieChart, Activity, Monitor, Cloud
+            Zap, AlertCircle, PieChart, Activity, Monitor, Cloud, Bell
         } from 'lucide-react';
 
         // --- GITHUB CLOUD SYNC SETTINGS ---
@@ -162,12 +165,13 @@
                         clients: Array.isArray(p.clients) ? p.clients : [],
                         holidays: Array.isArray(p.holidays) ? p.holidays : [],
                         leaves: Array.isArray(p.leaves) ? p.leaves : [],
+                        reminders: Array.isArray(p.reminders) ? p.reminders : [], // New Feature State
                         totalLeaves: p.totalLeaves ?? 22,
                         lastUpdated: p.lastUpdated || Date.now()
                     };
                 }
             } catch (e) { console.error("Local load error", e); }
-            return { projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22, lastUpdated: Date.now() };
+            return { projects: [], clients: [], holidays: [], leaves: [], reminders: [], totalLeaves: 22, lastUpdated: Date.now() };
         };
 
         const saveLocalData = (data) => {
@@ -194,12 +198,13 @@
                                 clients: Array.isArray(p.clients) ? p.clients : [],
                                 holidays: Array.isArray(p.holidays) ? p.holidays : [],
                                 leaves: Array.isArray(p.leaves) ? p.leaves : [],
+                                reminders: Array.isArray(p.reminders) ? p.reminders : [],
                                 totalLeaves: p.totalLeaves ?? 22,
                                 lastUpdated: p.lastUpdated || Date.now()
                             };
                         }
                     }
-                } catch (e) { console.error("Cloud fetch failed", e); }
+                } catch (e) { console.error("Cloud fetch failed, using local.", e); }
             }
             return null; 
         };
@@ -275,7 +280,7 @@
                         />
                     )}
                     
-                    <div className={`${isExpanded ? 'fixed inset-4 md:inset-12 z-[100] shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-3xl fade-in' : 'h-[400px] rounded-xl'} bg-gray-950 border border-gray-800 overflow-hidden flex flex-col`}>
+                    <div className={`${isExpanded ? 'fixed inset-4 md:inset-12 z-[100] shadow-[0_0_50px_rgba(0,0,0,0.5)] rounded-3xl fade-in' : 'h-[400px] rounded-xl'} bg-gray-950 border border-gray-800 overflow-hidden flex flex-col transition-all`}>
                         <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-900 border-b border-gray-800 shrink-0">
                             <div className="flex gap-0.5 bg-gray-950 p-1 rounded-lg border border-gray-800 mr-1">
                                 <button onClick={()=>exec('bold')} className="p-1.5 hover:bg-gray-800 rounded text-gray-400"><Bold size={14}/></button>
@@ -308,7 +313,7 @@
                         </div>
                         <div 
                             ref={editorRef} 
-                            className={`editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar flex-1 ${isExpanded ? 'text-base leading-relaxed' : ''}`} 
+                            className={`editor-content p-4 outline-none text-sm text-gray-300 overflow-y-auto custom-scrollbar flex-1 ${isExpanded ? 'text-xl leading-relaxed' : ''}`} 
                             contentEditable 
                             onPaste={handlePaste}
                             onInput={(e)=>onChange(e.target.innerHTML)} 
@@ -600,6 +605,67 @@
             );
         };
 
+        // --- NEW REMINDERS MANAGER ---
+        const RemindersManager = ({ isOpen, onClose, reminders, onUpdateReminders }) => {
+            const [form, setForm] = useState({ title: '', time: '', offset: 15 });
+            
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-800 w-full max-w-lg rounded-3xl h-[500px] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="flex border-b border-gray-800"><div className="flex-1 py-4 text-[10px] font-bold tracking-widest text-white text-center uppercase flex justify-center items-center gap-2"><Bell size={14} className="text-yellow-500"/> NOTIFICATIONS & TIMERS</div><button onClick={onClose} className="px-6 text-gray-500 hover:text-white transition"><X/></button></div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                            <div className="space-y-4 bg-gray-950 p-4 rounded-2xl border border-gray-800 shadow-lg text-white">
+                                <input className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" placeholder="e.g. Pick up kid from school" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Event Time</label>
+                                        <input type="time" className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" value={form.time} onChange={e=>setForm({...form, time:e.target.value})} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Notify Before (Mins)</label>
+                                        <select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none" value={form.offset} onChange={e=>setForm({...form, offset: parseInt(e.target.value)})}>
+                                            <option value={0}>At Exact Time</option>
+                                            <option value={5}>5 mins before</option>
+                                            <option value={10}>10 mins before</option>
+                                            <option value={15}>15 mins before</option>
+                                            <option value={30}>30 mins before</option>
+                                            <option value={60}>1 hour before</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button className="w-full bg-blue-600 py-3 rounded-xl font-bold text-xs shadow-lg hover:bg-blue-500 transition" onClick={()=>{ 
+                                    if(form.title && form.time) {
+                                        onUpdateReminders([...(reminders || []), { id: crypto.randomUUID(), ...form }]);
+                                        setForm({ title: '', time: '', offset: 15 });
+                                    }
+                                }}>ADD ALARM</button>
+                            </div>
+                            <div className="space-y-2">
+                                {(reminders || []).map((r) => {
+                                    // Calculate actual alert time for display
+                                    const [h, m] = r.time.split(':').map(Number);
+                                    const d = new Date(); d.setHours(h, m - r.offset, 0, 0);
+                                    const alertTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    
+                                    return (
+                                        <div key={r.id} className="flex justify-between items-center p-4 bg-gray-800/30 border border-gray-800 rounded-2xl hover:border-gray-600 transition">
+                                            <div>
+                                                <p className="font-bold text-white text-sm">{r.title}</p>
+                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Alerts at <span className="text-yellow-500 font-black">{alertTimeStr}</span></p>
+                                            </div>
+                                            <button onClick={()=>onUpdateLists(reminders.filter(x=>x.id!==r.id))} className="text-red-500 transition p-2 bg-gray-800 rounded-lg hover:bg-red-500/10"><Trash2 size={16}/></button>
+                                        </div>
+                                    );
+                                })}
+                                {(reminders || []).length === 0 && <p className="text-center text-sm text-gray-500 py-4">No daily reminders set.</p>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const ProjectCard = ({ p, clients, showRates, onEdit, onSelect, onAdvance, onRevision, onUpdate }) => {
             const val = calculateTicketValue(p, clients);
             const now = new Date(); const start = parseLocalDate(p.startDate || p.createdAt); const deadline = parseLocalDate(p.deadline);
@@ -706,19 +772,19 @@
             </div>
         );
 
-        // --- NEW SCREENSAVER COMPONENT ---
-        const ScreensaverView = ({ projects, onExit, onAutoSync }) => {
+        // --- 4K TV DASHBOARD (SCREENSAVER) ---
+        const ScreensaverView = ({ projects, reminders, onExit, onAutoSync }) => {
             const [time, setTime] = useState(new Date());
-            const [weather, setWeather] = useState({ temp: '--', condition: 'Loading...' });
+            const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
+            const [activeAlarm, setActiveAlarm] = useState(null);
+            
+            // Memory flag so alarm only fires once per day
+            const triggeredAlarms = useRef({});
 
-            // Clock & Auto-sync Engine
+            // 1. Core Clock & Sync Engine
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
-                
-                // Auto sync strictly every 60,000 ms (1 minute)
-                const syncTimer = setInterval(() => {
-                    onAutoSync(true); // Pass true to trigger silent mode
-                }, 60000);
+                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync every 60s
                 
                 return () => {
                     clearInterval(clockTimer);
@@ -726,7 +792,40 @@
                 };
             }, [onAutoSync]);
 
-            // Weather Engine (Updates every 30 mins for Cebu City)
+            // 2. Alarm Trigger Engine (Checks every 10 seconds)
+            useEffect(() => {
+                const alarmCheck = setInterval(() => {
+                    const now = new Date();
+                    const currentMins = now.getHours() * 60 + now.getMinutes();
+                    const todayStr = now.toDateString();
+
+                    (reminders || []).forEach(r => {
+                        if (!r.time) return;
+                        const [hr, min] = r.time.split(':').map(Number);
+                        const eventMins = hr * 60 + min;
+                        const alertMins = eventMins - (r.offset || 0);
+
+                        // If we hit the minute, trigger it
+                        if (currentMins >= alertMins && currentMins < eventMins) {
+                            const triggerKey = `${r.id}-${todayStr}`;
+                            if (!triggeredAlarms.current[triggerKey]) {
+                                triggeredAlarms.current[triggerKey] = true;
+                                // Convert 24hr to 12hr for display
+                                const d = new Date(); d.setHours(hr, min, 0);
+                                const eventTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                
+                                setActiveAlarm({ ...r, eventTimeStr });
+                                
+                                // Auto dismiss the giant alert after 1 minute so it doesn't burn into the TV
+                                setTimeout(() => setActiveAlarm(null), 60000);
+                            }
+                        }
+                    });
+                }, 10000);
+                return () => clearInterval(alarmCheck);
+            }, [reminders]);
+
+            // 3. Weather Fetcher (Cebu City API - Updates every 30 mins)[cite: 1]
             useEffect(() => {
                 const fetchWeather = async () => {
                     try {
@@ -740,7 +839,6 @@
                             else if(code >= 51 && code <= 67) desc = 'Rainy';
                             else if(code >= 71 && code <= 77) desc = 'Snowy';
                             else if(code >= 95) desc = 'Thunderstorm';
-                            
                             setWeather({ temp: `${Math.round(data.current_weather.temperature)}°C`, condition: desc });
                         }
                     } catch(e) {}
@@ -750,70 +848,176 @@
                 return () => clearInterval(weatherTimer);
             }, []);
 
-            // Identify highest priority active project
+            // Get Priority Project
             const activeProject = useMemo(() => {
                 const active = (projects || []).filter(p => !['paid', 'completed'].includes(p.status));
                 const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
-                // Sort by highest progress, fallback to newest active
-                if (inProgress.length > 0) {
-                    return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0))[0];
-                }
+                if (inProgress.length > 0) return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0))[0];
                 return active[active.length - 1] || null;
             }, [projects]);
 
+            // Build TV Calendar Data
+            const tvCalendar = useMemo(() => {
+                const startM = new Date(time.getFullYear(), time.getMonth(), 1);
+                const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
+                const endM = new Date(time.getFullYear(), time.getMonth() + 1, 0);
+                const endD = new Date(endM); if (endD.getDay() !== 6) endD.setDate(endD.getDate() + (6 - endD.getDay()));
+                
+                const w = []; let iter = new Date(startD);
+                while (iter <= endD || w.length < 5) {
+                    let week = [];
+                    for(let i=0; i<7; i++){ week.push(new Date(iter)); iter.setDate(iter.getDate()+1); }
+                    w.push(week);
+                }
+                return w;
+            }, [time.getMonth()]);
+
             return (
-                <div className="fixed inset-0 bg-[#030712] z-[100] flex flex-col items-center justify-center p-8 cursor-default transition-all fade-in">
-                    <button onClick={onExit} className="absolute top-8 right-8 p-4 text-gray-600 hover:text-white transition group flex items-center gap-2">
-                        <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit TV Mode</span>
+                <div className="fixed inset-0 bg-[#030712] z-[100] p-8 md:p-16 flex flex-col cursor-default fade-in overflow-hidden">
+                    
+                    {/* ALARM OVERLAY */}
+                    {activeAlarm && (
+                        <div className="fixed inset-0 z-[200] bg-red-950/95 flex flex-col items-center justify-center fade-in backdrop-blur-md">
+                            <div className="absolute inset-0 bg-red-500/20 pulse-slow mix-blend-overlay"></div>
+                            <Bell size={120} className="text-red-500 mb-8 animate-bounce drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]" />
+                            <h1 className="text-7xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
+                            <p className="text-5xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
+                            <p className="text-3xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
+                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
+                        </div>
+                    )}
+
+                    {/* Exit Button */}
+                    <button onClick={onExit} className="absolute top-8 right-8 p-4 text-gray-600 hover:text-white transition group flex items-center gap-2 z-10">
+                        <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
                         <X size={32} />
                     </button>
                     
-                    <div className="flex-1 flex flex-col items-center justify-center space-y-6">
-                        <h1 className="text-[12rem] font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.1)' }}>
-                            {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/(AM|PM)/, '').trim()}
-                            <span className="text-6xl text-gray-500 ml-4 tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
-                        </h1>
-                        
-                        <div className="flex items-center gap-6 text-3xl font-bold text-gray-400">
-                            <span className="text-blue-500">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</span>
-                            <span className="w-2 h-2 rounded-full bg-gray-700"></span>
-                            <span className="flex items-center gap-2 text-yellow-500"><Cloud size={28}/> {weather.temp} &bull; {weather.condition}</span>
-                        </div>
+                    {/* HEADER: CLOCK & WEATHER */}
+                    <div className="flex justify-between items-start mb-16">
+                         <div>
+                             <h1 className="text-[8rem] font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.05)' }}>
+                                 {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/(AM|PM)/, '').trim()}
+                                 <span className="text-[4rem] text-gray-500 ml-4 tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
+                             </h1>
+                             <p className="text-3xl text-blue-500 font-bold tracking-tight mt-2">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                         </div>
+                         <div className="text-right flex flex-col items-end pt-4">
+                             <div className="flex items-center gap-4 text-5xl font-black text-yellow-500"><Cloud size={48} className="text-gray-500"/> {weather.temp}</div>
+                             <p className="text-2xl text-gray-500 font-bold uppercase tracking-widest mt-2">{weather.condition}</p>
+                         </div>
                     </div>
 
-                    <div className="w-full max-w-5xl mb-20 space-y-6 bg-gray-900/50 p-10 rounded-[3rem] border border-gray-800/50 shadow-2xl backdrop-blur-xl">
-                        {activeProject ? (
-                            <>
-                                <div className="flex justify-between items-end">
-                                    <div className="pr-4">
-                                        <p className="text-blue-400 font-bold uppercase tracking-widest text-lg mb-2">{activeProject.client}</p>
-                                        <h2 className="text-5xl font-black text-white truncate max-w-3xl leading-tight pb-1">{activeProject.name}</h2>
+                    {/* GRID: SHOT PROGRESS & CALENDAR */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 flex-1 h-full min-h-0">
+                         
+                         {/* LEFT: Active Project Dashboard */}
+                         <div className="col-span-2 bg-gray-900/40 rounded-[3rem] p-12 border border-gray-800 shadow-2xl flex flex-col justify-center relative overflow-hidden backdrop-blur-xl">
+                            {/* Ambient Glow */}
+                            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -z-10 mix-blend-screen pointer-events-none"></div>
+                            
+                            {activeProject ? (
+                                <div className="space-y-12 relative z-10">
+                                    <div className="flex justify-between items-end">
+                                        <div className="pr-8">
+                                            <div className="flex items-center gap-3 mb-4">
+                                                <Briefcase size={20} className="text-blue-500" />
+                                                <p className="text-blue-400 font-black uppercase tracking-widest text-xl">{activeProject.client}</p>
+                                            </div>
+                                            <h2 className="text-6xl font-black text-white truncate max-w-4xl leading-tight">{activeProject.name}</h2>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <p className="text-gray-500 font-black uppercase tracking-widest text-sm mb-3">Pipeline Status</p>
+                                            <div className={`px-6 py-2 rounded-2xl border text-xl font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
+                                        </div>
                                     </div>
-                                    <div className="text-right shrink-0">
-                                        <p className="text-gray-500 font-bold uppercase tracking-widest text-sm mb-2">Status</p>
-                                        <div className={`px-4 py-1.5 rounded-xl border text-sm font-black uppercase inline-block ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
+                                    
+                                    <div className="space-y-6 pt-8">
+                                        <div className="flex justify-between text-2xl font-bold text-gray-400 uppercase tracking-widest">
+                                            <span>Current Progress</span>
+                                            <span className="text-white font-black">{activeProject.progress || 0}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-950 h-10 rounded-full overflow-hidden border border-gray-800 shadow-inner">
+                                            <div 
+                                                className="h-full bg-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out relative" 
+                                                style={{ width: `${activeProject.progress || 0}%` }}
+                                            >
+                                                <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)' }}></div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                                
-                                <div className="space-y-4 pt-4">
-                                    <div className="flex justify-between text-xl font-bold text-gray-400">
-                                        <span>Production Progress</span>
-                                        <span className="text-white">{activeProject.progress || 0}%</span>
-                                    </div>
-                                    <div className="w-full bg-gray-950 h-8 rounded-full overflow-hidden border border-gray-800 shadow-inner">
-                                        <div 
-                                            className="h-full bg-blue-500 shadow-[0_0_30px_rgba(59,130,246,0.8)] transition-all duration-1000 ease-out" 
-                                            style={{ width: `${activeProject.progress || 0}%` }}
-                                        />
-                                    </div>
+                            ) : (
+                                <div className="text-center py-10 relative z-10">
+                                    <div className="w-24 h-24 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-6"><Target size={40} className="text-gray-600"/></div>
+                                    <h2 className="text-4xl font-black text-gray-500 tracking-tight">No Active Shots</h2>
+                                    <p className="text-gray-600 mt-4 text-2xl font-medium">Dashboard is waiting for a new ticket to track.</p>
                                 </div>
-                            </>
-                        ) : (
-                            <div className="text-center py-10">
-                                <h2 className="text-3xl font-bold text-gray-500">No active shots in progress.</h2>
-                                <p className="text-gray-600 mt-2 text-xl">Take a break or add a new ticket!</p>
-                            </div>
-                        )}
+                            )}
+                         </div>
+
+                         {/* RIGHT: Calendar & Reminders Layout */}
+                         <div className="flex flex-col gap-8 h-full min-h-0">
+                              
+                              {/* Mini TV Calendar */}
+                              <div className="bg-gray-900/40 rounded-[2.5rem] p-8 border border-gray-800 shadow-xl backdrop-blur-xl">
+                                  <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
+                                  <div className="grid grid-cols-7 gap-1 mb-2">
+                                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} className="text-center text-[10px] font-black text-gray-600 uppercase">{d}</div>)}
+                                  </div>
+                                  <div className="grid grid-cols-7 gap-1">
+                                      {tvCalendar.flat().map((day, dIdx) => {
+                                          const isToday = day.toDateString() === time.toDateString();
+                                          const isOtherMonth = day.getMonth() !== time.getMonth();
+                                          
+                                          // Check if any project has a deadline today
+                                          const hasDeadline = (projects || []).some(p => {
+                                              if(!p.deadline || ['paid', 'completed'].includes(p.status)) return false;
+                                              const d = parseLocalDate(p.deadline);
+                                              return d && d.toDateString() === day.toDateString();
+                                          });
+
+                                          return (
+                                              <div key={dIdx} className={`aspect-square flex flex-col items-center justify-center rounded-xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400'}`}>
+                                                  <span className={`text-sm font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
+                                                  {hasDeadline && <div className={`w-1.5 h-1.5 rounded-full absolute bottom-1.5 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
+                                              </div>
+                                          );
+                                      })}
+                                  </div>
+                              </div>
+
+                              {/* Today's Alarms */}
+                              <div className="bg-gray-900/40 rounded-[2.5rem] p-8 border border-gray-800 shadow-xl flex-1 flex flex-col overflow-hidden backdrop-blur-xl">
+                                  <div className="flex items-center gap-3 mb-6 shrink-0">
+                                      <Bell size={18} className="text-yellow-500"/>
+                                      <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest">Active Reminders</h3>
+                                  </div>
+                                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                                      {(reminders || []).map(r => {
+                                          const [h, m] = r.time.split(':').map(Number);
+                                          const d = new Date(); d.setHours(h, m, 0);
+                                          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                          
+                                          // Note: "offset" logic is handled silently for alerts. List just shows event time.
+                                          return (
+                                              <div key={r.id} className="bg-gray-950/50 p-4 rounded-2xl border border-gray-800/50">
+                                                  <p className="text-yellow-500 font-mono font-bold text-xs mb-1">{timeStr}</p>
+                                                  <p className="text-white font-bold text-base">{r.title}</p>
+                                                  {r.offset > 0 && <p className="text-gray-600 text-[9px] uppercase font-bold mt-2">Alerts {r.offset}m prior</p>}
+                                              </div>
+                                          );
+                                      })}
+                                      {(reminders || []).length === 0 && (
+                                          <div className="h-full flex flex-col items-center justify-center opacity-50">
+                                              <Bell size={24} className="text-gray-600 mb-2"/>
+                                              <p className="text-gray-500 font-bold text-sm">No alarms set</p>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+
+                         </div>
                     </div>
                 </div>
             );
@@ -832,11 +1036,12 @@
                 setTimeout(() => setToast(null), 4000);
             };
 
-            const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], totalLeaves: 22 });
+            const [data, setData] = useState({ projects: [], clients: [], holidays: [], leaves: [], reminders: [], totalLeaves: 22 });
             const [loading, setLoading] = useState(true);
             const [view, setView] = useState('board');
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [isListOpen, setIsListOpen] = useState(false);
+            const [isRemindersOpen, setIsRemindersOpen] = useState(false);
             const [activeProject, setActiveProject] = useState(null);
             const [editingProject, setEditingProject] = useState(null);
             const [showRates, setShowRates] = useState(true);
@@ -847,7 +1052,7 @@
             // --- MANUAL PULL FROM CLOUD ---
             const forcePullFromCloud = async (silentMode = false) => {
                 if (!githubToken) return;
-                const isSilent = silentMode === true; // strict boolean check against React Synthetic Events
+                const isSilent = silentMode === true; 
                 
                 const token = safeGetStorage(GITHUB_TOKEN_KEY);
                 const gistId = safeGetStorage(LOCAL_GIST_KEY);
@@ -971,6 +1176,7 @@
             }, [statusGroups.completed]);
 
             const handleUpdateLists = (l) => setData(prev => ({ ...prev, clients: l }));
+            const handleUpdateReminders = (r) => setData(prev => ({ ...prev, reminders: r }));
             const handleAddLeave = (l) => setData(prev => ({ ...prev, leaves: [...(prev.leaves || []), l] }));
             const handleDeleteLeave = (id) => setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(x=>x.id!==id) }));
             const handleUpdateHolidays = (h) => setData(prev => ({ ...prev, holidays: h }));
@@ -1124,6 +1330,12 @@
                             <div className="flex items-center gap-2">
                                 <button onClick={()=>setShowRates(!showRates)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-gray-400 hover:text-white transition shadow-sm hidden sm:flex">{showRates?<Eye size={18}/>:<EyeOff size={18}/>}</button>
                                 
+                                {/* ALARMS BUTTON */}
+                                <button onClick={()=>setIsRemindersOpen(true)} className="w-10 h-10 flex items-center justify-center bg-gray-800/50 border border-gray-700 rounded-2xl text-yellow-500 hover:text-yellow-400 hover:bg-gray-800 transition shadow-sm relative" title="Notifications & Timers">
+                                    <Bell size={18}/>
+                                    {(data.reminders || []).length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-gray-900"></span>}
+                                </button>
+                                
                                 {/* MANUAL SYNC CONTROLS */}
                                 <div className="flex bg-gray-900 border border-gray-800 rounded-2xl p-1 shadow-inner">
                                     <button onClick={() => forcePullFromCloud(false)} className="w-8 h-8 flex items-center justify-center rounded-xl text-blue-400 hover:bg-gray-800 hover:text-blue-300 transition" title="Pull Latest Data from GitHub">
@@ -1209,7 +1421,9 @@
                         {view === 'calendar' && <CalendarBoard projects={data.projects} currentDate={currentDate} onEdit={(p)=>{setEditingProject(p); setIsModalOpen(true);}} holidays={data.holidays} leaves={data.leaves} />}
                         {view === 'stats' && <StatisticsView projects={data.projects} clients={data.clients} leaves={data.leaves} totalLeaves={data.totalLeaves} showRates={showRates} />}
                         {view === 'leaves' && <TimeOffView leaves={data.leaves} holidays={data.holidays} totalLeaves={data.totalLeaves} onAddLeave={handleAddLeave} onDeleteLeave={handleDeleteLeave} onUpdateHolidays={handleUpdateHolidays} onUpdateTotalLeaves={handleUpdateTotalLeaves} />}
-                        {view === 'screensaver' && <ScreensaverView projects={data.projects} onExit={() => setView('board')} onAutoSync={forcePullFromCloud} />}
+                        
+                        {/* THE SCREENSAVER */}
+                        {view === 'screensaver' && <ScreensaverView projects={data.projects} reminders={data.reminders} onExit={() => setView('board')} onAutoSync={forcePullFromCloud} />}
                     </main>
                     
                     {/* Mobile Nav Tabs (Visible only on small screens) */}
@@ -1225,6 +1439,7 @@
 
                     <ProjectModal isOpen={isModalOpen} onClose={()=>setIsModalOpen(false)} onSave={handleSaveProject} onDelete={(id)=>setData(prev=>({...prev, projects:(prev.projects || []).filter(x=>x.id!==id)}))} initialData={editingProject} clients={data.clients} />
                     <ListManager isOpen={isListOpen} onClose={()=>setIsListOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImport} />
+                    <RemindersManager isOpen={isRemindersOpen} onClose={()=>setIsRemindersOpen(false)} reminders={data.reminders} onUpdateReminders={handleUpdateReminders} />
                     {activeProject && <ProjectDetails project={activeProject} onClose={()=>setActiveProject(null)} onEdit={()=>{ setEditingProject(activeProject); setIsModalOpen(true); setActiveProject(null); }} onAdvance={handleAdvanceStage} onRevert={handleRevertStage} onRevision={handleRevisionNeeded} onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x)}))} />}
                 </div>
             );
