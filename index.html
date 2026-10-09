@@ -36,9 +36,11 @@
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         .slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        .fade-switch { animation: fadeSwitch 0.5s ease-in-out; }
         
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+        @keyframes fadeSwitch { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
@@ -772,13 +774,46 @@
             </div>
         );
 
+        // --- NEW SVG ANALOG CLOCK ---
+        const AnalogClock = ({ time }) => {
+            const seconds = time.getSeconds();
+            const minutes = time.getMinutes();
+            const hours = time.getHours() % 12 + minutes / 60;
+
+            return (
+                <svg width="140" height="140" viewBox="0 0 200 200" className="transform -rotate-90">
+                    {/* 60 Seconds Loading Dots */}
+                    {Array.from({ length: 60 }).map((_, i) => {
+                        const angle = (i / 60) * Math.PI * 2;
+                        const x = 100 + 90 * Math.cos(angle);
+                        const y = 100 + 90 * Math.sin(angle);
+                        const isActive = i <= seconds;
+                        return (
+                            <circle 
+                                key={i} cx={x} cy={y} 
+                                r={i % 5 === 0 ? "3" : "1.5"} 
+                                fill={isActive ? '#3b82f6' : '#1f2937'} 
+                                className="transition-all duration-300"
+                            />
+                        );
+                    })}
+                    {/* Hour Hand */}
+                    <line x1="100" y1="100" x2={100 + 45 * Math.cos((hours / 12) * Math.PI * 2)} y2={100 + 45 * Math.sin((hours / 12) * Math.PI * 2)} stroke="#9ca3af" strokeWidth="5" strokeLinecap="round" />
+                    {/* Minute Hand */}
+                    <line x1="100" y1="100" x2={100 + 65 * Math.cos((minutes / 60) * Math.PI * 2)} y2={100 + 65 * Math.sin((minutes / 60) * Math.PI * 2)} stroke="white" strokeWidth="3" strokeLinecap="round" />
+                    {/* Center Dot */}
+                    <circle cx="100" cy="100" r="5" fill="#3b82f6" />
+                </svg>
+            );
+        };
+
         // --- 4K TV DASHBOARD (SCREENSAVER) ---
         const ScreensaverView = ({ projects, reminders, onExit, onAutoSync }) => {
             const [time, setTime] = useState(new Date());
             const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
             const [activeAlarm, setActiveAlarm] = useState(null);
+            const [rIndex, setRIndex] = useState(0);
             
-            // Memory flag so alarm only fires once per day
             const triggeredAlarms = useRef({});
 
             // 1. Core Clock & Sync Engine
@@ -805,19 +840,15 @@
                         const eventMins = hr * 60 + min;
                         const alertMins = eventMins - (r.offset || 0);
 
-                        // If we hit the minute, trigger it
                         if (currentMins >= alertMins && currentMins < eventMins) {
                             const triggerKey = `${r.id}-${todayStr}`;
                             if (!triggeredAlarms.current[triggerKey]) {
                                 triggeredAlarms.current[triggerKey] = true;
-                                // Convert 24hr to 12hr for display
                                 const d = new Date(); d.setHours(hr, min, 0);
                                 const eventTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                 
                                 setActiveAlarm({ ...r, eventTimeStr });
-                                
-                                // Auto dismiss the giant alert after 1 minute so it doesn't burn into the TV
-                                setTimeout(() => setActiveAlarm(null), 60000);
+                                setTimeout(() => setActiveAlarm(null), 60000); // Auto dismiss
                             }
                         }
                     });
@@ -825,7 +856,24 @@
                 return () => clearInterval(alarmCheck);
             }, [reminders]);
 
-            // 3. Weather Fetcher (Cebu City API - Updates every 30 mins)
+            // 3. Carousel Engine for Reminders
+            useEffect(() => {
+                if (!reminders || reminders.length <= 2) return;
+                const carouselTimer = setInterval(() => {
+                    setRIndex(prev => (prev + 2 >= reminders.length ? 0 : prev + 2));
+                }, 5000);
+                return () => clearInterval(carouselTimer);
+            }, [reminders]);
+
+            const getVisibleReminders = () => {
+                if (!reminders || reminders.length === 0) return [];
+                if (reminders.length <= 2) return reminders;
+                const first = reminders[rIndex % reminders.length];
+                const second = reminders[(rIndex + 1) % reminders.length];
+                return [first, second].filter(Boolean);
+            };
+
+            // 4. Weather Fetcher (Cebu City API - Updates every 30 mins)[cite: 1]
             useEffect(() => {
                 const fetchWeather = async () => {
                     try {
@@ -848,13 +896,32 @@
                 return () => clearInterval(weatherTimer);
             }, []);
 
-            // Get Priority Project
+            // Priority Project Math
             const activeProject = useMemo(() => {
                 const active = (projects || []).filter(p => !['paid', 'completed'].includes(p.status));
                 const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
                 if (inProgress.length > 0) return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0))[0];
                 return active[active.length - 1] || null;
             }, [projects]);
+
+            // Deadline Calculations
+            let deadlineProg = 0;
+            let isOverdue = false;
+            let deadlineStr = 'No deadline set';
+            if (activeProject && activeProject.startDate && activeProject.deadline) {
+                const start = parseLocalDate(activeProject.startDate);
+                const dl = parseLocalDate(activeProject.deadline);
+                if (start && dl) {
+                    deadlineStr = formatDate(dl);
+                    const total = dl.getTime() - start.getTime();
+                    if (total > 0) {
+                        deadlineProg = Math.max(0, Math.min(100, ((time.getTime() - start.getTime()) / total) * 100));
+                    } else {
+                        deadlineProg = 100;
+                    }
+                    if (time > dl) isOverdue = true;
+                }
+            }
 
             // Build TV Calendar Data
             const tvCalendar = useMemo(() => {
@@ -873,104 +940,120 @@
             }, [time.getMonth()]);
 
             return (
-                <div className="fixed inset-0 bg-[#030712] z-[100] p-6 lg:p-12 flex flex-col cursor-default fade-in overflow-hidden">
+                <div className="fixed inset-0 bg-[#030712] z-[100] p-8 flex flex-col cursor-default fade-in overflow-hidden h-screen w-screen">
                     
                     {/* ALARM OVERLAY */}
                     {activeAlarm && (
                         <div className="fixed inset-0 z-[200] bg-red-950/95 flex flex-col items-center justify-center fade-in backdrop-blur-md">
                             <div className="absolute inset-0 bg-red-500/20 pulse-slow mix-blend-overlay"></div>
                             <Bell size={120} className="text-red-500 mb-8 animate-bounce drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]" />
-                            <h1 className="text-7xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
-                            <p className="text-5xl lg:text-7xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
-                            <p className="text-3xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
-                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
+                            <h1 className="text-6xl md:text-8xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
+                            <p className="text-4xl md:text-6xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
+                            <p className="text-2xl md:text-4xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
+                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-2xl md:text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
                         </div>
                     )}
 
-                    {/* Exit Button - Positioned absolutely to top-right corner to prevent layout shifting */}
-                    <button onClick={onExit} className="absolute top-6 right-6 p-2 text-gray-600 hover:text-white transition group flex items-center gap-2 z-50">
+                    {/* Exit Button */}
+                    <button onClick={onExit} className="absolute top-6 right-6 p-4 text-gray-600 hover:text-white transition group flex items-center gap-2 z-50">
                         <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
-                        <X size={32} />
+                        <X size={24} />
                     </button>
                     
-                    {/* HEADER: CLOCK & WEATHER */}
-                    <div className="flex justify-between items-start mb-8 lg:mb-12 shrink-0 relative z-10">
-                         <div>
-                             <h1 className="text-7xl lg:text-[8rem] font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.05)' }}>
-                                 {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/(AM|PM)/, '').trim()}
-                                 <span className="text-4xl lg:text-6xl text-gray-500 ml-4 tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
-                             </h1>
-                             <p className="text-2xl lg:text-4xl text-blue-500 font-bold tracking-tight mt-2">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                    {/* HEADER: ANALOG CLOCK, DIGITAL TIME & WEATHER */}
+                    <div className="flex justify-between items-center mb-8 shrink-0 relative z-10 pl-4 pr-16">
+                         <div className="flex items-center gap-8">
+                             <AnalogClock time={time} />
+                             <div>
+                                 <h1 className="text-7xl font-black text-white leading-none tracking-tighter" style={{ textShadow: '0 0 40px rgba(255,255,255,0.05)' }}>
+                                     {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).replace(/(AM|PM)/, '').trim()}
+                                     <span className="text-4xl text-gray-500 ml-4 tracking-normal uppercase">{time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).slice(-2)}</span>
+                                 </h1>
+                                 <p className="text-2xl text-blue-500 font-bold tracking-tight mt-2">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                             </div>
                          </div>
-                         <div className="text-right flex flex-col items-end pt-2 pr-12">
-                             <div className="flex items-center gap-4 text-4xl lg:text-6xl font-black text-yellow-500"><Cloud size={48} className="text-gray-500"/> {weather.temp}</div>
-                             <p className="text-xl lg:text-2xl text-gray-500 font-bold uppercase tracking-widest mt-2">{weather.condition}</p>
+                         <div className="text-right flex flex-col items-end">
+                             <div className="flex items-center gap-4 text-5xl font-black text-yellow-500"><Cloud size={40} className="text-gray-500"/> {weather.temp}</div>
+                             <p className="text-xl text-gray-500 font-bold uppercase tracking-widest mt-2">{weather.condition}</p>
                          </div>
                     </div>
 
                     {/* GRID: SHOT PROGRESS & CALENDAR */}
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 flex-1 h-full min-h-0 pb-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 flex-1 h-full min-h-0 pb-4">
                          
-                         {/* LEFT: Active Project Dashboard */}
-                         <div className="col-span-2 bg-gray-900/40 rounded-[2rem] lg:rounded-[3rem] p-8 lg:p-12 border border-gray-800 shadow-2xl flex flex-col justify-center relative overflow-hidden backdrop-blur-xl">
-                            {/* Ambient Glow */}
+                         {/* LEFT: Active Project Dashboard (Scaled Down) */}
+                         <div className="col-span-3 bg-gray-900/40 rounded-[2rem] p-10 border border-gray-800 shadow-2xl flex flex-col justify-center relative overflow-hidden backdrop-blur-xl">
                             <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -z-10 mix-blend-screen pointer-events-none"></div>
                             
                             {activeProject ? (
-                                <div className="space-y-8 lg:space-y-12 relative z-10">
+                                <div className="space-y-10 relative z-10">
                                     <div className="flex justify-between items-start">
                                         <div className="pr-4">
-                                            <div className="flex items-center gap-3 mb-2 lg:mb-4">
-                                                <Briefcase size={24} className="text-blue-500" />
-                                                <p className="text-blue-400 font-black uppercase tracking-widest text-lg lg:text-2xl">{activeProject.client}</p>
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <Briefcase size={20} className="text-blue-500" />
+                                                <p className="text-blue-400 font-black uppercase tracking-widest text-lg">{activeProject.client}</p>
                                             </div>
-                                            <h2 className="text-5xl lg:text-7xl font-black text-white leading-tight line-clamp-2" title={activeProject.name}>{activeProject.name}</h2>
+                                            <h2 className="text-4xl font-black text-white leading-tight line-clamp-2" title={activeProject.name}>{activeProject.name}</h2>
                                         </div>
                                         <div className="text-right shrink-0">
-                                            <p className="text-gray-500 font-black uppercase tracking-widest text-xs lg:text-sm mb-2 lg:mb-3">Pipeline Status</p>
-                                            <div className={`px-4 lg:px-6 py-2 rounded-xl lg:rounded-2xl border text-lg lg:text-2xl font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
+                                            <div className={`px-4 py-1.5 rounded-xl border text-sm font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
                                         </div>
                                     </div>
                                     
-                                    <div className="space-y-4 pt-4 lg:pt-8">
-                                        <div className="flex justify-between text-xl lg:text-3xl font-bold text-gray-400 uppercase tracking-widest">
-                                            <span>Current Progress</span>
-                                            <span className="text-white font-black">{activeProject.progress || 0}%</span>
+                                    <div className="space-y-6 pt-4">
+                                        {/* Production Progress Bar */}
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between text-sm font-bold text-gray-400 uppercase tracking-widest">
+                                                <span>Production Progress</span>
+                                                <span className="text-white">{activeProject.progress || 0}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-950 h-6 rounded-full overflow-hidden border border-gray-800 shadow-inner">
+                                                <div 
+                                                    className="h-full bg-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out relative" 
+                                                    style={{ width: `${activeProject.progress || 0}%` }}
+                                                >
+                                                    <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)' }}></div>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="w-full bg-gray-950 h-6 lg:h-10 rounded-full overflow-hidden border border-gray-800 shadow-inner">
-                                            <div 
-                                                className="h-full bg-blue-500 shadow-[0_0_40px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out relative" 
-                                                style={{ width: `${activeProject.progress || 0}%` }}
-                                            >
-                                                <div className="absolute inset-0 bg-white/20 w-full h-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)' }}></div>
+
+                                        {/* Deadline Duration Bar */}
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between text-sm font-bold text-gray-400 uppercase tracking-widest">
+                                                <span>Time Remaining</span>
+                                                <span className={isOverdue ? 'text-red-500 font-black' : 'text-white'}>{isOverdue ? 'OVERDUE' : `Deadline: ${deadlineStr}`}</span>
+                                            </div>
+                                            <div className="w-full bg-gray-950 h-3 rounded-full overflow-hidden border border-gray-800 shadow-inner">
+                                                <div 
+                                                    className={`h-full ${isOverdue ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)]' : 'bg-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.4)]'} transition-all duration-1000 ease-out relative`} 
+                                                    style={{ width: `${deadlineProg}%` }}
+                                                />
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="text-center py-10 relative z-10">
-                                    <div className="w-24 h-24 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-6"><Target size={40} className="text-gray-600"/></div>
-                                    <h2 className="text-4xl lg:text-5xl font-black text-gray-500 tracking-tight">No Active Shots</h2>
-                                    <p className="text-gray-600 mt-4 text-xl lg:text-2xl font-medium">Dashboard is waiting for a new ticket to track.</p>
+                                    <div className="w-20 h-20 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-6"><Target size={32} className="text-gray-600"/></div>
+                                    <h2 className="text-3xl font-black text-gray-500 tracking-tight">No Active Shots</h2>
+                                    <p className="text-gray-600 mt-2 text-lg font-medium">Dashboard is waiting for a new ticket to track.</p>
                                 </div>
                             )}
                          </div>
 
-                         {/* RIGHT: Calendar & Reminders Layout */}
-                         <div className="flex flex-col gap-6 lg:gap-8 h-full min-h-0">
+                         {/* RIGHT: Calendar & Reminders Layout (Bigger) */}
+                         <div className="col-span-2 flex flex-col gap-6 h-full min-h-0">
                               
-                              {/* Mini TV Calendar */}
-                              <div className="bg-gray-900/40 rounded-[2rem] p-6 lg:p-8 border border-gray-800 shadow-xl backdrop-blur-xl shrink-0">
-                                  <h3 className="text-xs lg:text-sm font-black text-gray-500 uppercase tracking-widest mb-4 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
-                                  <div className="grid grid-cols-7 gap-1 mb-2">
-                                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} className="text-center text-[10px] lg:text-xs font-black text-gray-600 uppercase">{d}</div>)}
+                              {/* TV Calendar - Larger Text & Padding */}
+                              <div className="bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-xl backdrop-blur-xl shrink-0">
+                                  <h3 className="text-lg font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
+                                  <div className="grid grid-cols-7 gap-2 mb-3">
+                                      {['S','M','T','W','T','F','S'].map((d,i)=><div key={i} className="text-center text-sm font-black text-gray-600 uppercase">{d}</div>)}
                                   </div>
-                                  <div className="grid grid-cols-7 gap-1 lg:gap-2">
+                                  <div className="grid grid-cols-7 gap-2">
                                       {tvCalendar.flat().map((day, dIdx) => {
                                           const isToday = day.toDateString() === time.toDateString();
                                           const isOtherMonth = day.getMonth() !== time.getMonth();
-                                          
-                                          // Check if any project has a deadline today
                                           const hasDeadline = (projects || []).some(p => {
                                               if(!p.deadline || ['paid', 'completed'].includes(p.status)) return false;
                                               const d = parseLocalDate(p.deadline);
@@ -978,39 +1061,45 @@
                                           });
 
                                           return (
-                                              <div key={dIdx} className={`aspect-square flex flex-col items-center justify-center rounded-lg relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-400'}`}>
-                                                  <span className={`text-sm lg:text-base font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
-                                                  {hasDeadline && <div className={`w-1.5 h-1.5 rounded-full absolute bottom-1.5 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
+                                              <div key={dIdx} className={`aspect-square flex flex-col items-center justify-center rounded-xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-lg scale-110' : 'text-gray-400'}`}>
+                                                  <span className={`text-xl font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
+                                                  {hasDeadline && <div className={`w-2 h-2 rounded-full absolute bottom-2 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
                                               </div>
                                           );
                                       })}
                                   </div>
                               </div>
 
-                              {/* Today's Alarms */}
-                              <div className="bg-gray-900/40 rounded-[2rem] p-6 lg:p-8 border border-gray-800 shadow-xl flex-1 flex flex-col overflow-hidden backdrop-blur-xl">
-                                  <div className="flex items-center gap-3 mb-6 shrink-0">
-                                      <Bell size={20} className="text-yellow-500"/>
-                                      <h3 className="text-xs lg:text-sm font-black text-gray-500 uppercase tracking-widest">Active Reminders</h3>
+                              {/* Scrolling Alarms Tab */}
+                              <div className="bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-xl flex-1 flex flex-col overflow-hidden backdrop-blur-xl">
+                                  <div className="flex items-center justify-between mb-6 shrink-0">
+                                      <div className="flex items-center gap-3">
+                                        <Bell size={24} className="text-yellow-500"/>
+                                        <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest">Active Reminders</h3>
+                                      </div>
+                                      {reminders.length > 2 && <div className="text-[10px] font-bold text-gray-600 bg-gray-800 px-3 py-1 rounded-full animate-pulse">AUTO-SCROLLING</div>}
                                   </div>
-                                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
-                                      {(reminders || []).map(r => {
-                                          const [h, m] = r.time.split(':').map(Number);
-                                          const d = new Date(); d.setHours(h, m, 0);
-                                          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                          
-                                          return (
-                                              <div key={r.id} className="bg-gray-950/50 p-4 rounded-xl border border-gray-800/50">
-                                                  <p className="text-yellow-500 font-mono font-bold text-xs lg:text-sm mb-1">{timeStr}</p>
-                                                  <p className="text-white font-bold text-base lg:text-lg leading-tight">{r.title}</p>
-                                                  {r.offset > 0 && <p className="text-gray-600 text-[9px] uppercase font-bold mt-2">Alerts {r.offset}m prior</p>}
-                                              </div>
-                                          );
-                                      })}
-                                      {(reminders || []).length === 0 && (
-                                          <div className="h-full flex flex-col items-center justify-center opacity-50">
-                                              <Bell size={32} className="text-gray-600 mb-2"/>
-                                              <p className="text-gray-500 font-bold text-sm lg:text-base">No alarms set</p>
+                                  
+                                  {/* Carousel Window */}
+                                  <div className="flex-1 relative overflow-hidden flex flex-col justify-center">
+                                      {(reminders || []).length > 0 ? (
+                                          <div key={rIndex} className="space-y-4 fade-switch w-full absolute inset-x-0">
+                                              {getVisibleReminders().map(r => {
+                                                  const [h, m] = r.time.split(':').map(Number);
+                                                  const d = new Date(); d.setHours(h, m, 0);
+                                                  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                                  return (
+                                                      <div key={r.id} className="bg-gray-950/80 p-5 rounded-2xl border border-gray-800 shadow-lg">
+                                                          <p className="text-yellow-500 font-mono font-bold text-sm mb-1">{timeStr}</p>
+                                                          <p className="text-white font-bold text-xl leading-tight">{r.title}</p>
+                                                      </div>
+                                                  );
+                                              })}
+                                          </div>
+                                      ) : (
+                                          <div className="flex flex-col items-center justify-center opacity-50 h-full">
+                                              <Bell size={40} className="text-gray-600 mb-4"/>
+                                              <p className="text-gray-500 font-bold text-lg">No alarms set</p>
                                           </div>
                                       )}
                                   </div>
@@ -1269,7 +1358,7 @@
                     <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-4">
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6 fade-in">
                             <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-500/20 shadow-inner">
-                                {isAuthenticating ? <RefreshCw className="text-blue-500 animate-spin" size={32} /> : <CheckCircle className="text-blue-500" size={32} />}
+                                <CheckCircle className="text-blue-500" size={32} />
                             </div>
                             <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
                             <p className="text-gray-400 text-sm text-center">Enter your GitHub PAT to continue. Make sure the token has <b className="text-white">Gists (Read & Write)</b> permissions enabled.</p>
