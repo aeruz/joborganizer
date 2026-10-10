@@ -40,10 +40,9 @@
         .fade-switch { animation: fadeSwitch 0.5s ease-in-out; }
         .animate-float { animation: float 6s ease-in-out infinite; }
         .animate-spin-slow { animation: spinSlow 40s linear infinite; }
-        .animate-slide-up-fade { animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         
-        /* Pure CSS Progress Bar - Zero CPU Load */
-        .animate-fill-bar { animation: fillBar 5s linear infinite; }
+        /* New Smooth Swipe Animation */
+        .animate-slide-up-fade { animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         
         .animate-sweep {
             background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
@@ -53,13 +52,12 @@
         
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
-        @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes fadeSwitch { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
         @keyframes spinSlow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes sweep { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
-        @keyframes fillBar { 0% { width: 0%; } 100% { width: 100%; } }
+        @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 1; transform: translateY(0); } }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
@@ -169,7 +167,7 @@
 
         const calculateTicketValue = (p, clients = []) => {
             const client = (clients || []).find(c => c.name === p.client);
-            if (client && client.mode === 'fixed') return parseFloat(client.defaultRate || 0);
+            if (client?.mode === 'fixed') return parseFloat(client.defaultRate || 0);
             return (parseFloat(p.shotRate || 0) * (parseFloat(p.shotCount) || 1));
         };
 
@@ -389,29 +387,26 @@
             
             const triggeredAlarms = useRef({});
 
-            // Pre-calculate Active Projects for the Carousel as a strictly defined Array
+            // Secure Active Projects Array
             const inProgressProjects = useMemo(() => {
-                const active = (projects || []).filter(p => p.status !== 'paid' && p.status !== 'completed');
-                const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
+                if (!projects || !Array.isArray(projects)) return [];
+                const active = projects.filter(p => p.status !== 'paid' && p.status !== 'completed');
+                const inProg = active.filter(p => p.progress > 0 && p.progress < 100);
                 
-                if (inProgress.length > 0) {
-                    return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0));
-                }
-                if (active.length > 0) {
-                    return [active[active.length - 1]];
-                }
+                if (inProg.length > 0) return [...inProg].sort((a,b) => (b.progress || 0) - (a.progress || 0));
+                if (active.length > 0) return [active[active.length - 1]];
                 return [];
             }, [projects]);
 
-            // Retrieve the active project safely based on pIndex
+            // Safely get the active project for the carousel
             const activeProject = inProgressProjects.length > 0 ? inProgressProjects[pIndex % inProgressProjects.length] : null;
 
             // 1. Core Clock, Sync & Project Swipe Engine
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
-                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync every 60s
+                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync
                 
-                // Vertical Project Swipe Engine (Every 8 Seconds)
+                // Vertical Project Carousel - Swipes every 8 seconds
                 const projTimer = setInterval(() => {
                     setPIndex(prev => prev + 1);
                 }, 8000);
@@ -447,7 +442,7 @@
                                 const eventTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                 
                                 setActiveAlarm({ ...r, eventTimeStr });
-                                setTimeout(() => setActiveAlarm(null), 60000); // Auto dismiss after 1 min
+                                setTimeout(() => setActiveAlarm(null), 60000); // Auto dismiss
                             }
                         }
                     });
@@ -455,14 +450,12 @@
                 return () => clearInterval(alarmCheck);
             }, [reminders]);
 
-            // 3. Carousel Engine for Reminders (5 second sweeps using CSS)
+            // 3. Reminder Carousel Engine
             useEffect(() => {
                 if (!reminders || reminders.length <= 2) return;
-                
                 const carouselTimer = setInterval(() => {
                     setRIndex(prev => prev + 2);
                 }, 5000);
-
                 return () => clearInterval(carouselTimer);
             }, [reminders]);
 
@@ -498,7 +491,7 @@
                 return () => clearInterval(weatherTimer);
             }, []);
 
-            // Secure Deadline Math
+            // Secure Deadline Math for Active Shot
             let deadlineProg = 0;
             let isOverdue = false;
             let deadlineStr = 'No deadline set';
@@ -527,7 +520,7 @@
                 }
             }
 
-            // Build TV Calendar Data Securely
+            // Build TV Calendar Data Securely (No Flat Arrays)
             const tvCalendar = useMemo(() => {
                 const startM = new Date(time.getFullYear(), time.getMonth(), 1);
                 const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
@@ -541,9 +534,9 @@
                     w.push(week);
                 }
                 return w;
-            }, [time.getMonth()]);
+            }, [time.getMonth(), time.getFullYear()]);
             
-            // Format time safely for all browsers
+            // Format time safely
             const timeRawStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const timeVal = timeRawStr.replace(/[a-zA-Z.]/g, '').trim();
             const ampmMatch = timeRawStr.match(/[a-zA-Z]+/);
@@ -576,9 +569,7 @@
                     
                     <div className="flex flex-col gap-6 lg:gap-10 h-full min-h-0 relative z-10">
                         
-                        {/* =========================================
-                            TOP ROW: 60% HEIGHT (MASSIVE CLOCKS/CAL) 
-                           ========================================= */}
+                        {/* TOP ROW: 60% HEIGHT */}
                         <div className="flex-[3] grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-10 min-h-0">
                             
                             {/* Clocks & Weather Container */}
@@ -606,7 +597,7 @@
                                 </div>
                             </div>
 
-                            {/* TV Calendar Container */}
+                            {/* TV Calendar Container (Animated Glow Jump) */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[3rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col">
                                 <h3 className="text-2xl font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
                                 <div className="grid grid-cols-7 gap-2 mb-2 shrink-0">
@@ -619,22 +610,22 @@
                                                 const isToday = day.toDateString() === time.toDateString();
                                                 const isOtherMonth = day.getMonth() !== time.getMonth();
                                                 
-                                                // Check for general dots
                                                 const hasDeadline = (projects || []).some(p => {
                                                     if(p.status === 'paid' || p.status === 'completed' || !p.deadline) return false;
                                                     const d = parseLocalDate(p.deadline);
                                                     return d && d.toDateString() === day.toDateString();
                                                 });
                                                 
-                                                // Check for Calendar Glow-Jump logic
+                                                // Dynamic Calendar Glow match for the active shot
                                                 const isCurrentDeadline = activeProjectDateStr === day.toDateString();
 
                                                 let cellClass = `h-full w-full flex flex-col items-center justify-center rounded-xl relative transition-all duration-700 ease-in-out `;
+                                                
                                                 if (isCurrentDeadline) {
                                                     if (isOverdue) {
-                                                        cellClass += `bg-red-900/40 border-2 border-red-500 scale-110 z-20 text-white animate-pulse `;
+                                                        cellClass += `bg-red-900/40 border-2 border-red-500 scale-110 z-20 text-white animate-pulse shadow-[0_0_30px_rgba(239,68,68,0.8)] `;
                                                     } else {
-                                                        cellClass += `bg-blue-900/40 border-2 border-blue-500 scale-110 z-20 text-white `;
+                                                        cellClass += `bg-blue-900/40 border-2 border-blue-500 scale-110 z-20 text-white shadow-[0_0_30px_rgba(59,130,246,0.6)] `;
                                                     }
                                                 } else if (isToday) {
                                                     cellClass += `bg-blue-600 text-white scale-105 z-10 shadow-lg `;
@@ -657,12 +648,10 @@
                             </div>
                         </div>
 
-                        {/* =========================================
-                            BOTTOM ROW: 40% HEIGHT (LEVELED SHOT/REM)
-                           ========================================= */}
+                        {/* BOTTOM ROW: 40% HEIGHT */}
                         <div className="flex-[2] grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-10 min-h-0">
                             
-                            {/* Shot Progress Dashboard */}
+                            {/* Shot Progress Dashboard (Vertical Swipe Animated) */}
                             <div className="col-span-3 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col justify-center relative overflow-hidden">
                                 
                                 {/* Carousel Navigation Dots */}
@@ -678,7 +667,7 @@
                                 )}
 
                                 {activeProject ? (
-                                    <div key={activeProject.id ? activeProject.id : pIndex} className="space-y-6 lg:space-y-8 relative z-10 animate-slide-up-fade w-full">
+                                    <div key={activeProject.id} className="space-y-6 lg:space-y-8 relative z-10 animate-slide-up-fade w-full">
                                         <div className="flex justify-between items-start">
                                             <div className="pr-4">
                                                 <div className="flex items-center gap-3 mb-2">
@@ -687,7 +676,7 @@
                                                 </div>
                                                 <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight truncate max-w-2xl">{activeProject.name}</h2>
                                             </div>
-                                            <div className="text-right shrink-0">
+                                            <div className="text-right shrink-0 pr-8 lg:pr-12">
                                                 <div className={`px-4 py-2 rounded-xl border text-sm font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
                                             </div>
                                         </div>
@@ -701,7 +690,7 @@
                                                 </div>
                                                 <div className="w-full bg-gray-950 h-6 lg:h-8 rounded-full overflow-hidden border border-gray-800 shadow-inner relative">
                                                     <div 
-                                                        className="h-full bg-blue-600 transition-all duration-1000 ease-out absolute left-0 top-0 bottom-0 overflow-hidden" 
+                                                        className="h-full bg-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out absolute left-0 top-0 bottom-0 overflow-hidden" 
                                                         style={{ width: `${activeProject.progress || 0}%` }}
                                                     >
                                                         {/* Scanning Light Beam Effect */}
@@ -737,7 +726,6 @@
                             {/* Scrolling Reminders Tab */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl relative">
                                 
-                                {/* Zero CPU CSS Carousel Progress Bar */}
                                 {(reminders || []).length > 2 && (
                                     <div className="absolute top-0 left-0 right-0 h-1 bg-gray-800">
                                         <div className="h-full bg-blue-500 animate-fill-bar"></div>
@@ -752,7 +740,6 @@
                                     {(reminders || []).length > 2 && <div className="text-[10px] font-bold text-gray-600 bg-gray-800 px-3 py-1 rounded-full animate-pulse">AUTO-SCROLLING</div>}
                                 </div>
                                 
-                                {/* Carousel Window */}
                                 <div className="flex-1 relative overflow-hidden flex flex-col justify-center">
                                     {(reminders || []).length > 0 ? (
                                         <div key={rIndex} className="space-y-4 w-full absolute inset-x-0 fade-switch flex flex-col justify-center h-full">
