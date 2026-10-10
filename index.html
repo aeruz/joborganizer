@@ -40,10 +40,6 @@
         .fade-switch { animation: fadeSwitch 0.5s ease-in-out; }
         .animate-float { animation: float 6s ease-in-out infinite; }
         .animate-spin-slow { animation: spinSlow 40s linear infinite; }
-        
-        /* New Smooth Swipe Animation */
-        .animate-slide-up-fade { animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
         .animate-sweep {
             background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
             background-size: 200% 100%;
@@ -57,7 +53,6 @@
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
         @keyframes spinSlow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes sweep { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
-        @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 1; transform: translateY(0); } }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
@@ -203,8 +198,7 @@
             if (token && gistId) {
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-                        cache: 'no-store'
+                        headers: { Authorization: `token ${token}` }
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -222,7 +216,7 @@
                             };
                         }
                     }
-                } catch (e) { console.error("Cloud fetch failed, using local.", e); }
+                } catch (e) { console.error("Cloud fetch failed", e); }
             }
             return null; 
         };
@@ -338,38 +332,39 @@
             );
         };
 
-        // --- SAFE SVG ANALOG CLOCK ---
+        // --- NEW SVG ANALOG CLOCK ---
         const AnalogClock = ({ time }) => {
             const seconds = time.getSeconds();
             const minutes = time.getMinutes();
             const hours = time.getHours() % 12 + minutes / 60;
 
-            const dots = [];
-            for (let i = 0; i < 60; i++) {
-                const angle = (i / 60) * Math.PI * 2;
-                const x = 100 + 90 * Math.cos(angle);
-                const y = 100 + 90 * Math.sin(angle);
-                const isActive = i <= seconds;
-                const isCurrent = i === seconds;
-                
-                dots.push(
-                    <circle 
-                        key={i} 
-                        cx={x} 
-                        cy={y} 
-                        r={i % 5 === 0 ? "3.5" : "1.5"} 
-                        fill={isActive ? '#3b82f6' : '#1f2937'} 
-                        className={`transition-colors duration-300 ${isCurrent ? 'fill-white' : ''}`}
-                    />
-                );
-            }
-
             return (
                 <svg width="220" height="220" viewBox="0 0 200 200" className="transform -rotate-90 drop-shadow-2xl">
+                    {/* Background Ring */}
                     <circle cx="100" cy="100" r="90" fill="none" stroke="#1f2937" strokeWidth="2" opacity="0.5" />
-                    {dots}
+                    
+                    {/* 60 Seconds Loading Dots */}
+                    {Array.from({ length: 60 }).map((_, i) => {
+                        const angle = (i / 60) * Math.PI * 2;
+                        const x = 100 + 90 * Math.cos(angle);
+                        const y = 100 + 90 * Math.sin(angle);
+                        const isActive = i <= seconds;
+                        const isCurrent = i === seconds;
+                        return (
+                            <circle 
+                                key={i} cx={x} cy={y} 
+                                r={i % 5 === 0 ? "3.5" : "1.5"} 
+                                fill={isActive ? '#3b82f6' : '#1f2937'} 
+                                className={`transition-all duration-300 ${isCurrent ? 'drop-shadow-[0_0_10px_rgba(59,130,246,1)] scale-150 fill-white' : ''}`}
+                                style={{ transformOrigin: `${x}px ${y}px` }}
+                            />
+                        );
+                    })}
+                    {/* Hour Hand */}
                     <line x1="100" y1="100" x2={100 + 40 * Math.cos((hours / 12) * Math.PI * 2)} y2={100 + 40 * Math.sin((hours / 12) * Math.PI * 2)} stroke="#9ca3af" strokeWidth="8" strokeLinecap="round" />
+                    {/* Minute Hand */}
                     <line x1="100" y1="100" x2={100 + 65 * Math.cos((minutes / 60) * Math.PI * 2)} y2={100 + 65 * Math.sin((minutes / 60) * Math.PI * 2)} stroke="white" strokeWidth="5" strokeLinecap="round" className="drop-shadow-lg" />
+                    {/* Center Dot */}
                     <circle cx="100" cy="100" r="8" fill="#3b82f6" className="drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]"/>
                 </svg>
             );
@@ -381,40 +376,20 @@
             const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
             const [activeAlarm, setActiveAlarm] = useState(null);
             
-            // Carousel States
+            // Carousel State
             const [rIndex, setRIndex] = useState(0);
-            const [pIndex, setPIndex] = useState(0);
+            const [carouselProgress, setCarouselProgress] = useState(0);
             
             const triggeredAlarms = useRef({});
 
-            // Secure Active Projects Array
-            const inProgressProjects = useMemo(() => {
-                if (!projects || !Array.isArray(projects)) return [];
-                const active = projects.filter(p => p.status !== 'paid' && p.status !== 'completed');
-                const inProg = active.filter(p => p.progress > 0 && p.progress < 100);
-                
-                if (inProg.length > 0) return [...inProg].sort((a,b) => (b.progress || 0) - (a.progress || 0));
-                if (active.length > 0) return [active[active.length - 1]];
-                return [];
-            }, [projects]);
-
-            // Safely get the active project for the carousel
-            const activeProject = inProgressProjects.length > 0 ? inProgressProjects[pIndex % inProgressProjects.length] : null;
-
-            // 1. Core Clock, Sync & Project Swipe Engine
+            // 1. Core Clock & Sync Engine
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
-                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync
-                
-                // Vertical Project Carousel - Swipes every 8 seconds
-                const projTimer = setInterval(() => {
-                    setPIndex(prev => prev + 1);
-                }, 8000);
+                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync every 60s
                 
                 return () => {
                     clearInterval(clockTimer);
                     clearInterval(syncTimer);
-                    clearInterval(projTimer);
                 };
             }, [onAutoSync]);
 
@@ -427,10 +402,7 @@
 
                     (reminders || []).forEach(r => {
                         if (!r.time) return;
-                        const parts = r.time.split(':');
-                        if (parts.length < 2) return;
-                        const hr = parseInt(parts[0], 10);
-                        const min = parseInt(parts[1], 10);
+                        const [hr, min] = r.time.split(':').map(Number);
                         const eventMins = hr * 60 + min;
                         const alertMins = eventMins - (r.offset || 0);
 
@@ -450,13 +422,29 @@
                 return () => clearInterval(alarmCheck);
             }, [reminders]);
 
-            // 3. Reminder Carousel Engine
+            // 3. Carousel Engine for Reminders (5 second sweeps)
             useEffect(() => {
-                if (!reminders || reminders.length <= 2) return;
+                if (!reminders || reminders.length <= 2) {
+                    setCarouselProgress(0);
+                    return;
+                }
+                
+                // Progress bar tick
+                const interval = 50; 
+                const progressTick = setInterval(() => {
+                    setCarouselProgress(prev => {
+                        if (prev >= 100) return 0;
+                        return prev + (100 / (5000 / interval));
+                    });
+                }, interval);
+
+                // Page turn every 5000ms
                 const carouselTimer = setInterval(() => {
-                    setRIndex(prev => prev + 2);
+                    setRIndex(prev => (prev + 2 >= reminders.length ? 0 : prev + 2));
+                    setCarouselProgress(0);
                 }, 5000);
-                return () => clearInterval(carouselTimer);
+
+                return () => { clearInterval(progressTick); clearInterval(carouselTimer); };
             }, [reminders]);
 
             const getVisibleReminders = () => {
@@ -467,22 +455,21 @@
                 return [first, second].filter(Boolean);
             };
 
-            // 4. Weather Fetcher
+            // 4. Weather Fetcher (Cebu City API - Updates every 30 mins)
             useEffect(() => {
                 const fetchWeather = async () => {
                     try {
                         const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=10.3157&longitude=123.8854&current_weather=true');
                         if (res.ok) {
                             const data = await res.json();
-                            const code = data.current_weather ? data.current_weather.weathercode : 0;
-                            const temp = data.current_weather ? Math.round(data.current_weather.temperature) : '--';
+                            const code = data.current_weather.weathercode;
                             let desc = 'Clear';
                             if(code > 0 && code <= 3) desc = 'Cloudy';
                             else if(code >= 45 && code <= 48) desc = 'Foggy';
                             else if(code >= 51 && code <= 67) desc = 'Rainy';
                             else if(code >= 71 && code <= 77) desc = 'Snowy';
-                            else if(code >= 95) desc = 'Storm';
-                            setWeather({ temp: `${temp}°C`, condition: desc });
+                            else if(code >= 95) desc = 'Thunderstorm';
+                            setWeather({ temp: `${Math.round(data.current_weather.temperature)}°C`, condition: desc });
                         }
                     } catch(e) {}
                 };
@@ -491,19 +478,18 @@
                 return () => clearInterval(weatherTimer);
             }, []);
 
-            // Secure Deadline Math for Active Shot
+            // Priority Project Math
+            const activeProject = useMemo(() => {
+                const active = (projects || []).filter(p => !['paid', 'completed'].includes(p.status));
+                const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
+                if (inProgress.length > 0) return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0))[0];
+                return active[active.length - 1] || null;
+            }, [projects]);
+
+            // Deadline Calculations
             let deadlineProg = 0;
             let isOverdue = false;
             let deadlineStr = 'No deadline set';
-            let activeProjectDateStr = null;
-
-            if (activeProject && activeProject.deadline) {
-                const dlDate = parseLocalDate(activeProject.deadline);
-                if (dlDate) {
-                    activeProjectDateStr = dlDate.toDateString();
-                }
-            }
-
             if (activeProject && activeProject.startDate && activeProject.deadline) {
                 const start = parseLocalDate(activeProject.startDate);
                 const dl = parseLocalDate(activeProject.deadline);
@@ -515,12 +501,13 @@
                     } else {
                         deadlineProg = 100;
                     }
+                    // Add buffer to the day
                     dl.setHours(23, 59, 59);
                     if (time > dl) isOverdue = true;
                 }
             }
 
-            // Build TV Calendar Data Securely (No Flat Arrays)
+            // Build TV Calendar Data (Safe Arrays, No Flat)
             const tvCalendar = useMemo(() => {
                 const startM = new Date(time.getFullYear(), time.getMonth(), 1);
                 const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
@@ -534,9 +521,9 @@
                     w.push(week);
                 }
                 return w;
-            }, [time.getMonth(), time.getFullYear()]);
+            }, [time.getMonth()]);
             
-            // Format time safely
+            // Format time safely for all browsers
             const timeRawStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const timeVal = timeRawStr.replace(/[a-zA-Z.]/g, '').trim();
             const ampmMatch = timeRawStr.match(/[a-zA-Z]+/);
@@ -553,23 +540,25 @@
                     {activeAlarm && (
                         <div className="fixed inset-0 z-[200] bg-red-950/95 flex flex-col items-center justify-center fade-in backdrop-blur-md">
                             <div className="absolute inset-0 bg-red-500/20 pulse-slow mix-blend-overlay"></div>
-                            <Bell size={120} className="text-red-500 mb-8 animate-bounce" />
+                            <Bell size={120} className="text-red-500 mb-8 animate-bounce drop-shadow-[0_0_30px_rgba(239,68,68,0.8)]" />
                             <h1 className="text-6xl md:text-8xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
                             <p className="text-4xl md:text-6xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
                             <p className="text-2xl md:text-4xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
-                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-2xl md:text-3xl font-black tracking-widest transition shadow-2xl relative z-10">DISMISS</button>
+                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-2xl md:text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
                         </div>
                     )}
 
-                    {/* Exit Button */}
-                    <button onClick={onExit} className="absolute top-6 right-6 p-4 text-gray-600 hover:text-white transition group flex items-center gap-2 z-50">
+                    {/* Exit Button - Positioned absolutely to top-right corner */}
+                    <button onClick={onExit} className="absolute top-6 right-6 p-2 text-gray-600 hover:text-white transition group flex items-center gap-2 z-50">
                         <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
-                        <X size={24} />
+                        <X size={32} />
                     </button>
                     
                     <div className="flex flex-col gap-6 lg:gap-10 h-full min-h-0 relative z-10">
                         
-                        {/* TOP ROW: 60% HEIGHT */}
+                        {/* =========================================
+                            TOP ROW: 60% HEIGHT (MASSIVE CLOCKS/CAL) 
+                           ========================================= */}
                         <div className="flex-[3] grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-10 min-h-0">
                             
                             {/* Clocks & Weather Container */}
@@ -578,7 +567,7 @@
                                 
                                 <div className="flex justify-between items-center h-full">
                                     <div className="flex items-center gap-8 lg:gap-12 pl-4">
-                                        <div className="shrink-0 drop-shadow-xl">
+                                        <div className="shrink-0 drop-shadow-2xl">
                                             <AnalogClock time={time} />
                                         </div>
                                         <div>
@@ -590,14 +579,14 @@
                                         </div>
                                     </div>
                                     <div className="text-right flex flex-col items-end pr-8 animate-float">
-                                        <Cloud size={80} className="text-gray-500 mb-2"/>
+                                        <Cloud size={80} className="text-gray-500 mb-2 drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)]"/>
                                         <div className="text-5xl lg:text-6xl font-black text-yellow-500 drop-shadow-md">{weather.temp}</div>
                                         <p className="text-xl lg:text-2xl text-gray-500 font-bold uppercase tracking-widest mt-2">{weather.condition}</p>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* TV Calendar Container (Animated Glow Jump) */}
+                            {/* TV Calendar Container (Safe Arrays, No Flat) */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[3rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col">
                                 <h3 className="text-2xl font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
                                 <div className="grid grid-cols-7 gap-2 mb-2 shrink-0">
@@ -609,36 +598,16 @@
                                             {week.map((day, dIdx) => {
                                                 const isToday = day.toDateString() === time.toDateString();
                                                 const isOtherMonth = day.getMonth() !== time.getMonth();
-                                                
                                                 const hasDeadline = (projects || []).some(p => {
-                                                    if(p.status === 'paid' || p.status === 'completed' || !p.deadline) return false;
+                                                    if(!p.deadline || ['paid', 'completed'].includes(p.status)) return false;
                                                     const d = parseLocalDate(p.deadline);
                                                     return d && d.toDateString() === day.toDateString();
                                                 });
-                                                
-                                                // Dynamic Calendar Glow match for the active shot
-                                                const isCurrentDeadline = activeProjectDateStr === day.toDateString();
-
-                                                let cellClass = `h-full w-full flex flex-col items-center justify-center rounded-xl relative transition-all duration-700 ease-in-out `;
-                                                
-                                                if (isCurrentDeadline) {
-                                                    if (isOverdue) {
-                                                        cellClass += `bg-red-900/40 border-2 border-red-500 scale-110 z-20 text-white animate-pulse shadow-[0_0_30px_rgba(239,68,68,0.8)] `;
-                                                    } else {
-                                                        cellClass += `bg-blue-900/40 border-2 border-blue-500 scale-110 z-20 text-white shadow-[0_0_30px_rgba(59,130,246,0.6)] `;
-                                                    }
-                                                } else if (isToday) {
-                                                    cellClass += `bg-blue-600 text-white scale-105 z-10 shadow-lg `;
-                                                } else if (isOtherMonth) {
-                                                    cellClass += `opacity-20 text-gray-400 bg-gray-950/30 `;
-                                                } else {
-                                                    cellClass += `text-gray-400 bg-gray-950/30 `;
-                                                }
 
                                                 return (
-                                                    <div key={dIdx} className={cellClass}>
-                                                        <span className={`text-xl lg:text-2xl font-bold ${isToday || isCurrentDeadline ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
-                                                        {hasDeadline && !isCurrentDeadline && <div className={`w-2 h-2 rounded-full absolute bottom-2 ${isToday ? 'bg-white' : 'bg-red-500'}`}></div>}
+                                                    <div key={dIdx} className={`h-full w-full flex flex-col items-center justify-center rounded-2xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-105 z-10' : 'text-gray-400 bg-gray-950/30'}`}>
+                                                        <span className={`text-2xl font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
+                                                        {hasDeadline && <div className={`w-2 h-2 rounded-full absolute bottom-2 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
                                                     </div>
                                                 );
                                             })}
@@ -648,35 +617,24 @@
                             </div>
                         </div>
 
-                        {/* BOTTOM ROW: 40% HEIGHT */}
+                        {/* =========================================
+                            BOTTOM ROW: 40% HEIGHT (LEVELED SHOT/REM)
+                           ========================================= */}
                         <div className="flex-[2] grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-10 min-h-0">
                             
-                            {/* Shot Progress Dashboard (Vertical Swipe Animated) */}
+                            {/* Shot Progress Dashboard */}
                             <div className="col-span-3 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col justify-center relative overflow-hidden">
-                                
-                                {/* Carousel Navigation Dots */}
-                                {inProgressProjects.length > 1 && (
-                                    <div className="absolute top-6 right-8 flex gap-2 z-20">
-                                        {inProgressProjects.map((_, i) => {
-                                            const isActive = i === (pIndex % inProgressProjects.length);
-                                            return (
-                                                <div key={i} className={`w-2 h-2 rounded-full transition-all duration-500 ${isActive ? 'bg-blue-500 scale-150' : 'bg-gray-700'}`} />
-                                            );
-                                        })}
-                                    </div>
-                                )}
-
                                 {activeProject ? (
-                                    <div key={activeProject.id} className="space-y-6 lg:space-y-8 relative z-10 animate-slide-up-fade w-full">
+                                    <div className="space-y-6 lg:space-y-8 relative z-10">
                                         <div className="flex justify-between items-start">
                                             <div className="pr-4">
                                                 <div className="flex items-center gap-3 mb-2">
                                                     <Briefcase size={20} className="text-blue-500" />
                                                     <p className="text-blue-400 font-black uppercase tracking-widest text-base">{activeProject.client}</p>
                                                 </div>
-                                                <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight truncate max-w-2xl">{activeProject.name}</h2>
+                                                <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight truncate">{activeProject.name}</h2>
                                             </div>
-                                            <div className="text-right shrink-0 pr-8 lg:pr-12">
+                                            <div className="text-right shrink-0">
                                                 <div className={`px-4 py-2 rounded-xl border text-sm font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
                                             </div>
                                         </div>
@@ -707,7 +665,7 @@
                                                 </div>
                                                 <div className="w-full bg-gray-950 h-3 rounded-full overflow-hidden shadow-inner">
                                                     <div 
-                                                        className={`h-full ${isOverdue ? 'bg-red-500' : 'bg-yellow-600'} transition-all duration-1000 ease-out`} 
+                                                        className={`h-full ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'bg-yellow-600'} transition-all duration-1000 ease-out`} 
                                                         style={{ width: `${deadlineProg}%` }}
                                                     />
                                                 </div>
@@ -725,10 +683,10 @@
 
                             {/* Scrolling Reminders Tab */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl relative">
-                                
+                                {/* Thin Carousel Progress Bar at the top */}
                                 {(reminders || []).length > 2 && (
                                     <div className="absolute top-0 left-0 right-0 h-1 bg-gray-800">
-                                        <div className="h-full bg-blue-500 animate-fill-bar"></div>
+                                        <div className="h-full bg-blue-500 transition-all duration-[50ms] ease-linear" style={{width: `${carouselProgress}%`}}></div>
                                     </div>
                                 )}
                                 
@@ -740,18 +698,14 @@
                                     {(reminders || []).length > 2 && <div className="text-[10px] font-bold text-gray-600 bg-gray-800 px-3 py-1 rounded-full animate-pulse">AUTO-SCROLLING</div>}
                                 </div>
                                 
+                                {/* Carousel Window */}
                                 <div className="flex-1 relative overflow-hidden flex flex-col justify-center">
                                     {(reminders || []).length > 0 ? (
                                         <div key={rIndex} className="space-y-4 w-full absolute inset-x-0 fade-switch flex flex-col justify-center h-full">
                                             {getVisibleReminders().map(r => {
-                                                let timeStr = "--:--";
-                                                if(r && r.time) {
-                                                    const parts = r.time.split(':');
-                                                    if(parts.length >= 2) {
-                                                        const d = new Date(); d.setHours(parseInt(parts[0],10), parseInt(parts[1],10), 0);
-                                                        timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                                    }
-                                                }
+                                                const [h, m] = r.time.split(':').map(Number);
+                                                const d = new Date(); d.setHours(h, m, 0);
+                                                const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                                 return (
                                                     <div key={r.id} className="bg-gray-950/80 p-5 lg:p-6 rounded-2xl border border-gray-800 shadow-lg flex items-center justify-between">
                                                         <div>
@@ -779,6 +733,455 @@
                 </div>
             );
         };
+
+        const CalendarBoard = ({ projects = [], currentDate, onEdit, holidays = [], leaves = [] }) => {
+            const startM = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+            const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
+            const endM = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+            const endD = new Date(endM); if (endD.getDay() !== 6) endD.setDate(endD.getDate() + (6 - endD.getDay()));
+            const weeks = []; let dayIter = new Date(startD);
+            while (dayIter <= endD || weeks.length < 5) { 
+                let w = []; for(let i=0; i<7; i++){ w.push(new Date(dayIter)); dayIter.setDate(dayIter.getDate()+1); } 
+                weeks.push(w); 
+            }
+            return (
+                <div className="flex-1 overflow-auto custom-scrollbar bg-gray-900 border border-gray-800 rounded-2xl m-2 shadow-2xl">
+                    <div className="grid grid-cols-7 border-b border-gray-800 sticky top-0 bg-gray-950 z-30">
+                        {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-[10px] font-bold text-gray-500 text-center py-2 uppercase tracking-widest">{d}</div>)}
+                    </div>
+                    {weeks.map((week, wIdx) => {
+                        const weekStart = new Date(week[0]); weekStart.setHours(0,0,0,0);
+                        const weekEnd = new Date(week[6]); weekEnd.setHours(23,59,59,999);
+                        const weekProjects = (projects || []).filter(p => {
+                            const s = parseLocalDate(p.startDate || p.createdAt); 
+                            const e = parseLocalDate(p.deadline || p.startDate || p.createdAt);
+                            if(!s || !e) return false;
+                            s.setHours(0,0,0,0); e.setHours(23,59,59,999);
+                            return s <= weekEnd && e >= weekStart;
+                        }).sort((a,b) => parseLocalDate(a.startDate) - parseLocalDate(b.startDate));
+                        return (
+                            <div key={wIdx} className="relative border-b border-gray-800/50 group" style={{ minHeight: '120px' }}>
+                                <div className="grid grid-cols-7 absolute inset-0 z-0 pointer-events-none">
+                                    {week.map((day, dIdx) => {
+                                        const isWeekend = dIdx === 0 || dIdx === 6;
+                                        const isToday = day.toDateString() === new Date().toDateString();
+                                        const isOtherMonth = day.getMonth() !== currentDate.getMonth();
+                                        const holiday = (holidays || []).find(h => h.month === (day.getMonth()+1) && h.day === day.getDate());
+                                        const leave = (leaves || []).find(l => { const s=parseLocalDate(l.startDate); const e=parseLocalDate(l.endDate || l.startDate); if(!s || !e) return false; s.setHours(0,0,0,0); e.setHours(23,59,59,999); return day >= s && day <= e; });
+                                        return (
+                                            <div key={dIdx} className={`border-r border-gray-800/30 p-2 ${isWeekend ? 'bg-gray-950/60' : ''} ${isToday ? 'bg-blue-500/5' : ''} ${holiday ? 'bg-yellow-500/10' : ''} ${leave ? 'bg-red-500/10' : ''}`}>
+                                                <span className={`text-[10px] font-bold ${isToday ? 'text-blue-400' : 'text-gray-700'}`}>{day.getDate()}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="absolute inset-x-0 top-8 z-10 px-1 pointer-events-none">
+                                    {weekProjects.map((p, pIdx) => {
+                                        const s = parseLocalDate(p.startDate || p.createdAt);
+                                        const e = parseLocalDate(p.deadline || p.startDate || p.createdAt);
+                                        const startCol = Math.max(0, Math.floor((s.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24)));
+                                        const endCol = Math.min(6, Math.floor((e.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24)));
+                                        return (
+                                            <div key={p.id} className="absolute pointer-events-auto mb-1" style={{ left: `${(startCol / 7) * 100}%`, width: `${((endCol - startCol + 1) / 7) * 100}%`, top: `${pIdx * 28}px`, height: '24px' }}>
+                                                <button onClick={() => onEdit(p)} className={`w-full h-full text-[9px] font-bold text-white px-2 flex items-center truncate shadow-lg transition-all rounded-lg border-y border-gray-900/20 ${p.status === 'completed' ? 'bg-yellow-600 border-l-yellow-400' : p.status === 'paid' ? 'bg-emerald-600 border-l-emerald-400' : 'bg-blue-600 border-l-blue-400'}`}>
+                                                    <span className="truncate">{p.name}</span>
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+
+        const StatisticsView = ({ projects = [], clients = [], leaves = [], totalLeaves, showRates }) => {
+            const stats = useMemo(() => {
+                const months = Array.from({length: 12}, (_, i) => ({ name: new Date(0, i).toLocaleString('default', {month:'short'}), earned: 0 }));
+                const paidFixedTracker = new Set();
+                let annualEarned = 0;
+                let totalOverdueDays = 0;
+                let overdueCount = 0;
+                let revisionCount = 0;
+                let onTimeCount = 0;
+                const now = new Date();
+
+                (projects || []).forEach(p => {
+                    const client = (clients || []).find(c => c.name === p.client);
+                    const isFixed = client?.mode === 'fixed';
+                    const deadline = parseLocalDate(p.deadline);
+                    const pDate = parseLocalDate(p.paymentDate || p.updatedAt || p.createdAt);
+                    const compDate = parseLocalDate(p.completionDate || p.paymentDate || p.updatedAt);
+                    
+                    const isFinished = ['completed', 'paid'].includes(p.status);
+                    const isRevision = p.status === 'revision';
+
+                    if (deadline) {
+                        if (!isFinished) {
+                            if (isRevision) {
+                                revisionCount++;
+                            } else if (now > deadline) {
+                                overdueCount++;
+                                totalOverdueDays += Math.max(0, Math.floor((now - deadline) / (1000 * 60 * 60 * 24)));
+                            } else {
+                                onTimeCount++;
+                            }
+                        } else {
+                            onTimeCount++;
+                            if (compDate > deadline) {
+                                totalOverdueDays += Math.max(0, Math.floor((compDate - deadline) / (1000 * 60 * 60 * 24)));
+                            }
+                        }
+                    }
+
+                    if (p.status === 'paid' && pDate && pDate.getFullYear() === new Date().getFullYear()) {
+                        let val = 0;
+                        if (isFixed) {
+                            const monthKey = `${p.client}-${pDate.getMonth()}-${pDate.getFullYear()}`;
+                            if (!paidFixedTracker.has(monthKey)) { val = parseFloat(client.defaultRate || 0); paidFixedTracker.add(monthKey); }
+                        } else { val = (parseFloat(p.shotRate || 0) * (p.shotCount || 1)); }
+                        months[pDate.getMonth()].earned += val;
+                        annualEarned += val;
+                    }
+                });
+
+                const totalForRatio = Math.max(1, onTimeCount + revisionCount + overdueCount);
+                const complianceRatio = Math.round((onTimeCount / totalForRatio) * 100);
+
+                return { months, annualTotal: annualEarned, totalOverdueDays, overdueCount, revisionCount, onTimeCount, complianceRatio };
+            }, [projects, clients]);
+
+            const maxEarned = Math.max(...stats.months.map(m => m.earned), 100);
+            
+            return (
+                <div className="h-full p-6 overflow-y-auto custom-scrollbar bg-gray-950 space-y-8 pb-20">
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3"><BarChart2 className="text-blue-500" size={32}/> Production Analytics</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <StatCard title="Annual Earned" value={showRates ? `$${stats.annualTotal.toLocaleString()}` : '****'} icon={TrendingUp} colorClass="bg-emerald-500" />
+                        <StatCard title="Compliance" value={`${stats.complianceRatio}%`} icon={Zap} colorClass="bg-blue-500" subtext="Achieved on-time" />
+                        <StatCard title="Active Overdue" value={stats.overdueCount} icon={Clock} colorClass="bg-red-500" subtext={`${stats.totalOverdueDays}d total delay`} />
+                        <StatCard title="In Revision" value={stats.revisionCount} icon={RotateCcw} colorClass="bg-yellow-500" />
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl">
+                            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-8 text-center">Work Distribution Gauge</h3>
+                            <div className="relative h-8 w-full bg-gray-800 rounded-full overflow-hidden flex shadow-inner border border-gray-700">
+                                <div className="h-full bg-blue-500 transition-all" style={{ width: `${(stats.onTimeCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                                <div className="h-full bg-yellow-500 transition-all" style={{ width: `${(stats.revisionCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                                <div className="h-full bg-red-500 transition-all" style={{ width: `${(stats.overdueCount / (stats.onTimeCount + stats.revisionCount + stats.overdueCount || 1)) * 100}%` }}/>
+                            </div>
+                            <div className="grid grid-cols-3 mt-8 text-center gap-4">
+                                <div><p className="text-2xl font-black text-blue-400">{stats.onTimeCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Achieved</p></div>
+                                <div><p className="text-2xl font-black text-yellow-500">{stats.revisionCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Revision</p></div>
+                                <div><p className="text-2xl font-black text-red-500">{stats.overdueCount}</p><p className="text-[9px] text-gray-500 uppercase font-black">Overdue</p></div>
+                            </div>
+                        </div>
+                        <div className="bg-gray-900 border border-gray-800 rounded-3xl p-8 shadow-2xl">
+                            <h3 className="text-xs font-black text-gray-500 uppercase tracking-widest mb-8 text-center">Revenue Pulse</h3>
+                            <div className="h-32 w-full flex items-end justify-between gap-2">
+                                {stats.months.map((m, i) => (
+                                    <div key={i} className="flex-1 flex flex-col items-center group h-full justify-end">
+                                        <div className="w-full bg-emerald-950 rounded-t-sm overflow-hidden relative h-full flex flex-col-reverse">
+                                            <div className="w-full bg-emerald-600 rounded-t-sm" style={{ height: `${(m.earned / maxEarned) * 100}%` }}/>
+                                        </div>
+                                        <span className="text-[7px] font-black text-gray-700 mt-2 uppercase">{m.name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const TimeOffView = ({ leaves = [], holidays = [], totalLeaves, onAddLeave, onDeleteLeave, onUpdateHolidays, onUpdateTotalLeaves }) => {
+            const [activeTab, setActiveTab] = useState('leaves');
+            const [viewDate, setViewDate] = useState(new Date());
+            const [isFiling, setIsFiling] = useState(false);
+            const [formEntry, setFormEntry] = useState({ startDate: '', endDate: '', reason: '' });
+            const now = new Date();
+            const cycleStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+            const cycleStart = new Date(cycleStartYear, 6, 1);
+            const monthsPassed = (now.getFullYear() - cycleStartYear) * 12 + now.getMonth() - 6 + 1;
+            const accrued = Math.max(0, Math.min(totalLeaves, (monthsPassed * 2) - (24 - totalLeaves)));
+            const cycleLeaves = (leaves || []).filter(l => parseLocalDate(l.startDate) >= cycleStart);
+            const used = cycleLeaves.reduce((s, l) => s + (l.days || 0), 0);
+            const weeks = useMemo(() => {
+                const startM = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+                const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
+                const w = []; let iter = new Date(startD);
+                for(let i=0; i<6; i++){ let r = []; for(let j=0; j<7; j++){ r.push(new Date(iter)); iter.setDate(iter.getDate()+1); } w.push(r); }
+                return w;
+            }, [viewDate]);
+            const submitEntry = () => {
+                const s = parseLocalDate(formEntry.startDate); 
+                const e = activeTab === 'leaves' ? parseLocalDate(formEntry.endDate || formEntry.startDate) : s;
+                if(!s || s > e) return;
+                if (activeTab === 'leaves') {
+                    let days = 0; let cur = new Date(s); while(cur <= e){ if(cur.getDay()!==0 && cur.getDay()!==6) days++; cur.setDate(cur.getDate()+1); }
+                    onAddLeave({ id: crypto.randomUUID(), ...formEntry, endDate: formEntry.endDate || formEntry.startDate, days });
+                } else {
+                    onUpdateHolidays([...(holidays || []), { id: crypto.randomUUID(), name: formEntry.reason || 'Holiday', month: s.getMonth() + 1, day: s.getDate(), color: '#eab308', iconName: 'Star' }]);
+                }
+                setIsFiling(false); setFormEntry({ startDate: '', endDate: '', reason: '' });
+            };
+            return (
+                <div className="flex flex-col lg:flex-row h-full overflow-y-auto lg:overflow-hidden bg-gray-950 custom-scrollbar safe-area-bottom">
+                    <div className="w-full lg:w-80 border-r border-gray-800 p-4 shrink-0 overflow-y-auto custom-scrollbar min-h-[400px]">
+                        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-xl mb-6 text-center text-white">
+                            <h2 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">Leave Status</h2>
+                            <div className="grid grid-cols-2 gap-2"><div><p className="text-xl font-bold text-blue-400">{accrued}</p><p className="text-[8px] text-gray-600 uppercase">Accrued</p></div><div><p className="text-xl font-bold text-emerald-400">{Math.max(0, accrued - used)}</p><p className="text-[8px] text-gray-600 uppercase">Left</p></div></div>
+                        </div>
+                        <div className="flex gap-2 mb-4 bg-gray-900 p-1 rounded-xl">
+                            <button onClick={()=>setActiveTab('leaves')} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${activeTab==='leaves'?'bg-blue-600 text-white shadow-lg':'text-gray-500'}`}>LEAVES</button>
+                            <button onClick={()=>setActiveTab('holidays')} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${activeTab==='holidays'?'bg-yellow-600 text-white shadow-lg':'text-gray-500'}`}>HOLIDAYS</button>
+                        </div>
+                        {isFiling && (
+                            <div className="space-y-2 bg-gray-900 p-4 rounded-xl border border-gray-800 mb-4 fade-in">
+                                <div className="space-y-1"><label className="text-[8px] text-gray-500 font-bold uppercase">Start Date</label><input type="date" className="w-full bg-gray-950 border border-gray-800 rounded p-2 text-xs text-white" value={formEntry.startDate} onChange={e=>setFormEntry({...formEntry, startDate:e.target.value})}/></div>
+                                {activeTab === 'leaves' && <div className="space-y-1"><label className="text-[8px] text-gray-500 font-bold uppercase">End Date</label><input type="date" className="w-full bg-gray-950 border border-gray-800 rounded p-2 text-xs text-white" value={formEntry.endDate} onChange={e=>setFormEntry({...formEntry, endDate:e.target.value})}/></div>}
+                                <input placeholder="Description..." className="w-full bg-gray-950 border border-gray-800 rounded p-2 text-xs text-white" value={formEntry.reason} onChange={e=>setFormEntry({...formEntry, reason:e.target.value})}/>
+                                <button onClick={submitEntry} className="w-full py-2 bg-blue-600 rounded-lg font-bold text-xs text-white">Save</button>
+                            </div>
+                        )}
+                        <div className="space-y-2">
+                            {(activeTab==='leaves' ? (cycleLeaves || []) : (holidays || [])).map(item=>(
+                                <div key={item.id} className="p-3 bg-gray-900 border border-gray-800 rounded-xl flex justify-between items-center group shadow-sm"><div className="min-w-0 pr-2"><p className="text-[10px] font-bold text-white truncate">{item.reason || item.name}</p><p className="text-[8px] text-gray-600">{item.startDate || `${item.month}/${item.day}`}</p></div><button onClick={()=>activeTab==='leaves' ? onDeleteLeave(item.id) : onUpdateHolidays(holidays.filter(x=>x.id!==item.id))} className="text-red-500 opacity-0 group-hover:opacity-100 transition"><Trash2 size={12}/></button></div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex-1 flex flex-col p-6 overflow-hidden min-h-[600px] tablet-scroll">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-2xl font-bold text-white">{viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+                            <div className="flex gap-1 bg-gray-900 p-1 rounded-xl shadow-lg border border-gray-800"><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()-1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronLeft/></button><button onClick={()=>setViewDate(new Date())} className="px-4 text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-widest transition">Today</button><button onClick={()=>setViewDate(new Date(viewDate.setMonth(viewDate.getMonth()+1)))} className="p-1 hover:bg-gray-800 rounded text-white transition"><ChevronRight/></button></div>
+                        </div>
+                        <div className="flex-1 grid grid-rows-6 border border-gray-800 rounded-3xl overflow-hidden bg-gray-900/20 shadow-2xl">
+                            <div className="grid grid-cols-7 bg-gray-900 border-b border-gray-800">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d} className="text-[10px] font-bold text-gray-600 text-center py-3 tracking-widest uppercase">{d}</div>)}</div>
+                            {weeks.map((week, wIdx) => (
+                                <div key={wIdx} className="grid grid-cols-7 border-b border-gray-800 last:border-0">
+                                    {week.map((day, dIdx) => {
+                                        const isOther = day.getMonth() !== viewDate.getMonth(); const isToday = day.toDateString() === new Date().toDateString(); const isWeekend = dIdx === 0 || dIdx === 6;
+                                        const holiday = (holidays || []).find(h => h.month === (day.getMonth()+1) && h.day === day.getDate());
+                                        const leave = (leaves || []).find(l => { const s=parseLocalDate(l.startDate); const e=parseLocalDate(l.endDate || l.startDate); if(!s || !e) return false; s.setHours(0,0,0,0); e.setHours(23,59,59,999); return day >= s && day <= e; });
+                                        return (
+                                            <div key={dIdx} onClick={() => { setFormEntry({ startDate: formatDate(day), endDate: formatDate(day), reason: '' }); setIsFiling(true); }} className={`p-2 border-r border-gray-800/30 last:border-0 relative cursor-pointer group ${isOther?'opacity-20':''} ${isToday?'bg-blue-500/10':''} ${isWeekend?'bg-gray-950/40':''} hover:bg-gray-800/40 transition-colors`}>
+                                                <span className={`text-[10px] font-bold ${isToday?'text-blue-400':'text-gray-700'}`}>{day.getDate()}</span>
+                                                <div className="mt-1 space-y-1">{holiday && <div className="h-1.5 bg-yellow-500/50 rounded" title={holiday.name} />}{leave && <div className="h-1.5 bg-red-500/50 rounded" title={leave.reason} />}</div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ListManager = ({ isOpen, onClose, onUpdateLists, initialClients, allData, onImport }) => {
+            const [clientForm, setClientForm] = useState({ name: '', mode: 'per_shot', defaultRate: 0 });
+            const [editIdx, setEditIdx] = useState(null);
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-800 w-full max-w-2xl rounded-3xl h-[600px] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="flex border-b border-gray-800"><div className="flex-1 py-4 text-[10px] font-bold tracking-widest text-white text-center uppercase">CLIENTS & DATABASE</div><button onClick={onClose} className="px-6 text-gray-500 hover:text-white transition"><X/></button></div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                            <div className="grid grid-cols-2 gap-4 bg-gray-950 p-4 rounded-2xl border border-gray-800 shadow-lg text-white">
+                                <input className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" placeholder="Client Name" value={clientForm.name} onChange={e=>setClientForm({...clientForm, name:e.target.value})} />
+                                <select className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none" value={clientForm.mode} onChange={e=>setClientForm({...clientForm, mode:e.target.value})}><option value="per_shot">Per Shot</option><option value="fixed">Monthly Fixed</option></select>
+                                {clientForm.mode==='fixed' && <input type="number" className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" placeholder="Monthly Rate" value={clientForm.defaultRate} onChange={e=>setClientForm({...clientForm, defaultRate:e.target.value})} />}
+                                <button className="col-span-2 bg-blue-600 py-3 rounded-xl font-bold text-xs shadow-lg hover:bg-blue-500 transition" onClick={()=>{ const list = [...(initialClients || [])]; if(editIdx !== null) list[editIdx] = clientForm; else list.push(clientForm); onUpdateLists(list); setClientForm({name:'', mode:'per_shot', defaultRate:0}); setEditIdx(null); }}>{editIdx !== null ? 'UPDATE CLIENT' : 'ADD CLIENT'}</button>
+                            </div>
+                            <div className="space-y-2">
+                                {(initialClients || []).map((c, i) => (
+                                    <div key={i} className="flex justify-between items-center p-4 bg-gray-800/30 border border-gray-800 rounded-2xl hover:border-gray-600 transition">
+                                        <div><p className="font-bold text-white text-sm">{c.name}</p><p className="text-[10px] text-gray-600 uppercase tracking-widest">{c.mode} {c.mode==='fixed' && `($${c.defaultRate})`}</p></div>
+                                        <div className="flex gap-2"><button onClick={()=>{setClientForm(c); setEditIdx(i);}} className="text-gray-400 hover:text-white transition p-2 bg-gray-800 rounded-lg"><Edit2 size={16}/></button><button onClick={()=>onUpdateLists(initialClients.filter((_,idx)=>idx!==i))} className="text-red-500 transition p-2 bg-gray-800 rounded-lg hover:bg-red-500/10"><Trash2 size={16}/></button></div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="border-t border-gray-800 pt-6 flex gap-4">
+                                <button onClick={()=>{const b=new Blob([JSON.stringify(allData)],{type:'application/json'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download='animtrack_backup.json'; a.click();}} className="bg-emerald-600/10 text-emerald-500 border border-emerald-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-emerald-600/20 transition flex items-center justify-center gap-2"><Download size={14}/> EXPORT</button>
+                                <button onClick={()=>{ const input=document.createElement('input'); input.type='file'; input.accept='.json'; input.onchange=e=>{ const f=e.target.files[0]; const reader=new FileReader(); reader.onload=ev=>{ onImport(JSON.parse(ev.target.result)); onClose(); }; reader.readAsText(f); }; input.click(); }} className="bg-blue-600/10 text-blue-500 border border-blue-500/20 px-6 py-3 rounded-2xl font-bold text-xs flex-1 hover:bg-blue-600/20 transition flex items-center justify-center gap-2"><Upload size={14}/> IMPORT</button>
+                            </div>
+                            <div className="border-t border-gray-800 pt-6">
+                                <button onClick={() => { safeRemoveStorage(GITHUB_TOKEN_KEY); safeRemoveStorage(LOCAL_GIST_KEY); window.location.reload(); }} className="w-full bg-red-500/10 text-red-500 border border-red-500/20 px-6 py-3 rounded-2xl font-bold text-xs hover:bg-red-500/20 transition flex items-center justify-center gap-2">LOGOUT (REMOVE DEVICE KEY)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- NEW REMINDERS MANAGER ---
+        const RemindersManager = ({ isOpen, onClose, reminders, onUpdateReminders }) => {
+            const [form, setForm] = useState({ title: '', time: '', offset: 15 });
+            
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-800 w-full max-w-lg rounded-3xl h-[500px] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="flex border-b border-gray-800"><div className="flex-1 py-4 text-[10px] font-bold tracking-widest text-white text-center uppercase flex justify-center items-center gap-2"><Bell size={14} className="text-yellow-500"/> NOTIFICATIONS & TIMERS</div><button onClick={onClose} className="px-6 text-gray-500 hover:text-white transition"><X/></button></div>
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                            <div className="space-y-4 bg-gray-950 p-4 rounded-2xl border border-gray-800 shadow-lg text-white">
+                                <input className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" placeholder="e.g. Pick up kid from school" value={form.title} onChange={e=>setForm({...form, title:e.target.value})} />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Event Time</label>
+                                        <input type="time" className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none focus:border-blue-500" value={form.time} onChange={e=>setForm({...form, time:e.target.value})} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] text-gray-500 font-bold uppercase ml-1">Notify Before (Mins)</label>
+                                        <select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-sm outline-none" value={form.offset} onChange={e=>setForm({...form, offset: parseInt(e.target.value)})}>
+                                            <option value={0}>At Exact Time</option>
+                                            <option value={5}>5 mins before</option>
+                                            <option value={10}>10 mins before</option>
+                                            <option value={15}>15 mins before</option>
+                                            <option value={30}>30 mins before</option>
+                                            <option value={60}>1 hour before</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button className="w-full bg-blue-600 py-3 rounded-xl font-bold text-xs shadow-lg hover:bg-blue-500 transition" onClick={()=>{ 
+                                    if(form.title && form.time) {
+                                        onUpdateReminders([...(reminders || []), { id: crypto.randomUUID(), ...form }]);
+                                        setForm({ title: '', time: '', offset: 15 });
+                                    }
+                                }}>ADD ALARM</button>
+                            </div>
+                            <div className="space-y-2">
+                                {(reminders || []).map((r) => {
+                                    // Calculate actual alert time for display
+                                    const [h, m] = r.time.split(':').map(Number);
+                                    const d = new Date(); d.setHours(h, m - r.offset, 0, 0);
+                                    const alertTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    
+                                    return (
+                                        <div key={r.id} className="flex justify-between items-center p-4 bg-gray-800/30 border border-gray-800 rounded-2xl hover:border-gray-600 transition">
+                                            <div>
+                                                <p className="font-bold text-white text-sm">{r.title}</p>
+                                                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Alerts at <span className="text-yellow-500 font-black">{alertTimeStr}</span></p>
+                                            </div>
+                                            <button onClick={()=>onUpdateReminders(reminders.filter(x=>x.id!==r.id))} className="text-red-500 transition p-2 bg-gray-800 rounded-lg hover:bg-red-500/10"><Trash2 size={16}/></button>
+                                        </div>
+                                    );
+                                })}
+                                {(reminders || []).length === 0 && <p className="text-center text-sm text-gray-500 py-4">No daily reminders set.</p>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProjectCard = ({ p, clients, showRates, onEdit, onSelect, onAdvance, onRevision, onUpdate }) => {
+            const val = calculateTicketValue(p, clients);
+            const now = new Date(); const start = parseLocalDate(p.startDate || p.createdAt); const deadline = parseLocalDate(p.deadline);
+            let deadlineProg = 0; let isOverdue = false;
+            if (start && deadline && !['paid', 'completed'].includes(p.status)) { 
+                const total = deadline.getTime() - start.getTime(); 
+                deadlineProg = Math.max(0, Math.min(100, ((now.getTime() - start.getTime()) / total) * 100)); 
+                if (now > deadline) isOverdue = true; 
+            }
+            return (
+                <div onClick={onSelect} className={`bg-gray-900 border p-5 rounded-3xl min-w-[300px] shrink-0 space-y-4 transition group cursor-pointer shadow-xl relative active:scale-95 ${isOverdue ? 'border-red-900/50 hover:border-red-500 shadow-red-900/10' : 'border-gray-800 hover:border-gray-600'}`}>
+                    <div className="flex justify-between items-start"><div className="min-w-0 pr-4"><p className="text-[10px] font-bold text-blue-500 uppercase truncate tracking-widest">{p.client}</p><h4 className="text-base font-bold text-white truncate mt-1 leading-tight">{p.name}</h4></div>
+                        <div className="flex gap-1 shrink-0">
+                            <button onClick={(e)=>{e.stopPropagation(); onRevision(p);}} className="p-2 bg-yellow-600/20 rounded-xl text-yellow-400 hover:bg-yellow-600/40 transition"><Zap size={14}/></button>
+                            <button onClick={(e)=>{e.stopPropagation(); onAdvance(p);}} className="p-2 bg-blue-600/20 rounded-xl text-blue-400 hover:bg-blue-600/40 transition"><ArrowRight size={14}/></button>
+                            <button onClick={(e)=>{e.stopPropagation(); onEdit(p);}} className="p-2 bg-gray-800 rounded-xl text-gray-500 hover:text-white transition"><Edit2 size={14}/></button>
+                        </div>
+                    </div>
+                    <div className="flex justify-between items-center"><div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full border ${getStatusStyles(p.status)}`}>{p.status}</div>{isOverdue && <div className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-red-600 text-white animate-pulse">Overdue</div>}<div className="text-xs font-mono font-bold text-white/90">{showRates ? `$${val.toLocaleString()}` : '****'}</div></div>
+                    <div className="space-y-3">
+                        <div className="space-y-1">
+                            <div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Progress</span><span>{p.progress||0}%</span></div>
+                            <input 
+                                type="range" 
+                                onClick={e=>e.stopPropagation()} 
+                                onPointerDown={e=>e.stopPropagation()} 
+                                onChange={e=>onUpdate(p.id, {progress: e.target.value})} 
+                                className="cursor-pointer" 
+                                value={p.progress || 0}
+                                style={{
+                                    background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${p.progress || 0}%, #1f2937 ${p.progress || 0}%, #1f2937 100%)`
+                                }}
+                            />
+                        </div>
+                        {deadline && !['paid', 'completed'].includes(p.status) && (<div className="space-y-1"><div className="flex justify-between text-[8px] text-gray-500 uppercase font-bold"><span>Deadline Tracker</span><span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : formatDate(deadline)}</span></div><div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden shadow-inner"><div className={`h-full transition-all duration-500 ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]' : 'bg-gray-600'}`} style={{width:`${deadlineProg}%`}}/></div></div>)}
+                    </div>
+                </div>
+            );
+        };
+
+        const ProjectModal = ({ isOpen, onClose, onSave, onDelete, initialData, clients }) => {
+            const [form, setForm] = useState({});
+            const selectedClient = (clients || []).find(c => c.name === form.client);
+            useEffect(() => {
+                if(isOpen) {
+                    if(initialData) setForm({...initialData});
+                    else setForm({ name: '', client: (clients && clients[0]?.name) || '', status: 'inquiry', progress: 0, shotRate: 0, shotCount: 1, fixedPrice: 0, startDate: formatDate(new Date()), deadline: formatDate(new Date()) });
+                }
+            }, [isOpen, initialData, clients]);
+            if(!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-950 border border-gray-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl space-y-6">
+                        <div className="flex justify-between items-center text-white"><h2 className="text-2xl font-bold">{initialData?'Edit Ticket':'New Ticket'}</h2><button onClick={onClose}><X/></button></div>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Client</label><select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500" value={form.client} onChange={e=>setForm({...form, client:e.target.value})}>{(clients || []).map(c=><option key={c.name} value={c.name}>{c.name}</option>)}</select></div>
+                                <div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Status</label><select className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500" value={form.status} onChange={e=>setForm({...form, status:e.target.value})}>{STATUS_FLOW.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}</select></div>
+                            </div>
+                            {selectedClient?.mode !== 'fixed' ? (
+                                <div className="grid grid-cols-2 gap-4 bg-gray-900 p-4 rounded-2xl border border-gray-800 shadow-inner text-white"><div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Rate</label><input type="number" className="w-full bg-gray-950 rounded-xl p-2 text-white text-sm outline-none" value={form.shotRate} onChange={e=>setForm({...form, shotRate:e.target.value})}/></div><div className="space-y-1"><label className="text-[10px] font-bold text-gray-600 uppercase ml-1">Shots</label><input type="number" className="w-full bg-gray-950 rounded-xl p-2 text-white text-sm outline-none" value={form.shotCount} onChange={e=>setForm({...form, shotCount:e.target.value})}/></div></div>
+                            ) : <div className="bg-gray-900 p-4 rounded-2xl border border-gray-800 text-center shadow-inner"><p className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Monthly Rate</p><p className="text-xl font-mono text-emerald-400 font-bold mt-1">${selectedClient.defaultRate}</p></div>}
+                            <input className="w-full bg-gray-900 border border-gray-800 rounded-xl p-3 text-white text-sm outline-none focus:border-blue-500" placeholder="Name" value={form.name} onChange={e=>setForm({...form, name:e.target.value})} />
+                            <div className="grid grid-cols-2 gap-4"><input type="date" className="bg-gray-900 rounded-xl p-3 text-white text-xs outline-none focus:border-blue-500" value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /><input type="date" className="bg-gray-900 rounded-xl p-3 text-white text-xs outline-none focus:border-blue-500" value={form.deadline} onChange={e=>setForm({...form, deadline:e.target.value})} /></div>
+                            <div className="flex gap-3 pt-4">{initialData && <button onClick={()=>{onDelete(initialData.id); onClose();}} className="bg-red-500/10 text-red-500 px-6 py-3 rounded-xl font-bold text-xs transition border border-red-500/20 hover:bg-red-500/20">DELETE</button>}<button onClick={()=>{onSave(form); onClose();}} className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold text-xs shadow-lg hover:bg-blue-500 transition">SAVE</button></div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const ProjectDetails = ({ project, onClose, onUpdate, onEdit, onAdvance, onRevert, onRevision }) => (
+            <div className="fixed inset-0 z-50 flex justify-end">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+                <div className="relative w-full max-w-2xl bg-gray-950 h-full border-l border-gray-800 shadow-2xl flex flex-col animate-slide-left">
+                    <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gray-900">
+                        <div><h2 className="text-2xl font-bold text-white leading-tight">{project.name}</h2><p className="text-blue-400 text-xs font-bold uppercase tracking-widest mt-1">{project.client}</p></div>
+                        <div className="flex gap-3"><button onClick={onEdit} className="p-2.5 bg-gray-800 rounded-xl text-gray-400 hover:text-white transition shadow-sm"><Edit2 size={18}/></button><button onClick={onClose} className="p-2.5 bg-gray-800 rounded-xl text-gray-400 hover:text-white transition shadow-sm"><X size={18}/></button></div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                        <div className="bg-gray-900 p-6 rounded-3xl border border-gray-800 shadow-inner">
+                            <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Workflow Step</span><div className="flex gap-2">
+                                <button onClick={()=>onRevert(project)} className="text-[10px] font-bold text-orange-400 flex items-center hover:underline uppercase transition"><RotateCcw size={10} className="mr-1"/> Revert</button>
+                                <button onClick={()=>onRevision(project)} className="text-[10px] font-bold text-yellow-400 flex items-center hover:underline uppercase transition"><Zap size={10} className="mr-1"/> Revision</button>
+                                <button onClick={()=>onAdvance(project)} className="text-[10px] font-bold text-blue-500 flex items-center hover:underline uppercase transition">Advance <ArrowRight size={10} className="ml-1"/></button>
+                            </div></div>
+                            <select className="w-full bg-gray-800 border border-gray-700 rounded-xl p-3 text-white text-sm mb-4 outline-none focus:border-blue-500 shadow-inner" value={project.status} onChange={(e)=>onUpdate(project.id, {status: e.target.value})}>
+                                {STATUS_FLOW.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                            </select>
+                            <div className="flex justify-between items-center mb-4 uppercase text-[10px] font-bold text-gray-500 tracking-widest">Progress: {project.progress || 0}%</div>
+                            <input 
+                                type="range" 
+                                className="w-full h-2 bg-gray-800 rounded-lg accent-blue-500 cursor-pointer" 
+                                value={project.progress || 0} 
+                                onChange={(e)=>onUpdate(project.id, {progress: e.target.value})} 
+                                style={{
+                                    background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${project.progress || 0}%, #1f2937 ${project.progress || 0}%, #1f2937 100%)`
+                                }}
+                            />
+                        </div>
+                        <div className="space-y-2"><label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest ml-1 opacity-70 uppercase">Production Notes</label><RichTextEditor value={project.notes || ''} onChange={(html)=>onUpdate(project.id, {notes: html})} /></div>
+                    </div>
+                </div>
+            </div>
+        );
 
         function App() {
             // --- UI State ---
@@ -822,13 +1225,14 @@
                 if (!isSilent) showToast('Downloading from GitHub...', 'info');
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}` }
+                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                        cache: 'no-store'
                     });
                     
                     if (!res.ok) throw new Error(`GitHub Error ${res.status}`);
                     
                     const gist = await res.json();
-                    const content = gist.files[GIST_FILENAME] ? gist.files[GIST_FILENAME].content : null;
+                    const content = gist.files[GIST_FILENAME]?.content;
                     if (!content) throw new Error('File not found inside your Gist.');
                     
                     const parsedData = JSON.parse(content);
@@ -1027,7 +1431,7 @@
                     <div className="fixed inset-0 bg-gray-950 flex flex-col items-center justify-center p-4">
                         <div className="bg-gray-900 border border-gray-800 p-8 rounded-3xl max-w-md w-full shadow-2xl space-y-6 fade-in">
                             <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-2 border border-blue-500/20 shadow-inner">
-                                <CheckCircle className="text-blue-500" size={32} />
+                                {isAuthenticating ? <RotateCcw className="text-blue-500 animate-spin" size={32} /> : <CheckCircle className="text-blue-500" size={32} />}
                             </div>
                             <h2 className="text-2xl font-bold text-white text-center">Secure Cloud Sync</h2>
                             <p className="text-gray-400 text-sm text-center">Enter your GitHub PAT to continue. Make sure the token has <b className="text-white">Gists (Read & Write)</b> permissions enabled.</p>
