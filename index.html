@@ -45,6 +45,7 @@
             background-size: 200% 100%;
             animation: sweep 2.5s infinite linear;
         }
+        .beacon-pulse { animation: beaconPulse 2s infinite; }
         
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -53,6 +54,11 @@
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
         @keyframes spinSlow { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes sweep { 0% { background-position: 200% center; } 100% { background-position: -200% center; } }
+        @keyframes beaconPulse { 
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } 
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } 
+        }
         
         .editor-content ul { list-style-type: disc; margin-left: 1.25rem; }
         .editor-content ol { list-style-type: decimal; margin-left: 1.25rem; }
@@ -376,17 +382,20 @@
             const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
             const [activeAlarm, setActiveAlarm] = useState(null);
             
-            // Carousel State
+            // Reminders Carousel State (20s)
             const [rIndex, setRIndex] = useState(0);
-            const [carouselProgress, setCarouselProgress] = useState(0);
+            const [remindersProgress, setRemindersProgress] = useState(0);
             
+            // Projects Carousel State (20s vertical scroll)
+            const [pIndex, setPIndex] = useState(0);
+            const [projectsProgress, setProjectsProgress] = useState(0);
+
             const triggeredAlarms = useRef({});
 
             // 1. Core Clock & Sync Engine
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
                 const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync every 60s
-                
                 return () => {
                     clearInterval(clockTimer);
                     clearInterval(syncTimer);
@@ -422,27 +431,25 @@
                 return () => clearInterval(alarmCheck);
             }, [reminders]);
 
-            // 3. Carousel Engine for Reminders (5 second sweeps)
+            // 3. Carousel Engine for Reminders (20 second sweeps)
             useEffect(() => {
                 if (!reminders || reminders.length <= 2) {
-                    setCarouselProgress(0);
+                    setRemindersProgress(0);
                     return;
                 }
                 
-                // Progress bar tick
                 const interval = 50; 
                 const progressTick = setInterval(() => {
-                    setCarouselProgress(prev => {
+                    setRemindersProgress(prev => {
                         if (prev >= 100) return 0;
-                        return prev + (100 / (5000 / interval));
+                        return prev + (100 / (20000 / interval)); // 20s
                     });
                 }, interval);
 
-                // Page turn every 5000ms
                 const carouselTimer = setInterval(() => {
                     setRIndex(prev => (prev + 2 >= reminders.length ? 0 : prev + 2));
-                    setCarouselProgress(0);
-                }, 5000);
+                    setRemindersProgress(0);
+                }, 20000); // 20s sweep
 
                 return () => { clearInterval(progressTick); clearInterval(carouselTimer); };
             }, [reminders]);
@@ -455,7 +462,61 @@
                 return [first, second].filter(Boolean);
             };
 
-            // 4. Weather Fetcher (Cebu City API - Updates every 30 mins)
+            // Active Projects Setup
+            const activeProjects = useMemo(() => {
+                const active = (projects || []).filter(p => !['paid', 'completed'].includes(p.status));
+                // Sort by progress for a logical flow, or leave chronological
+                return active.sort((a,b) => (b.progress || 0) - (a.progress || 0));
+            }, [projects]);
+
+            // 4. Carousel Engine for Projects Vertical Scroll (20 second sweeps)
+            useEffect(() => {
+                if (!activeProjects || activeProjects.length <= 1) {
+                    setProjectsProgress(0);
+                    setPIndex(0);
+                    return;
+                }
+                
+                const interval = 50;
+                const progressTick = setInterval(() => {
+                    setProjectsProgress(prev => {
+                        if (prev >= 100) return 0;
+                        return prev + (100 / (20000 / interval)); // 20s
+                    });
+                }, interval);
+
+                const carouselTimer = setInterval(() => {
+                    setPIndex(prev => (prev + 1 >= activeProjects.length ? 0 : prev + 1));
+                    setProjectsProgress(0);
+                }, 20000); // 20s sweep
+
+                return () => { clearInterval(progressTick); clearInterval(carouselTimer); };
+            }, [activeProjects]);
+
+            const currentlyDisplayedProject = activeProjects[pIndex] || null;
+
+            // Priority Project Math for the *Currently Displayed* one
+            let deadlineProg = 0;
+            let isOverdue = false;
+            let deadlineStr = 'No deadline set';
+            
+            if (currentlyDisplayedProject && currentlyDisplayedProject.startDate && currentlyDisplayedProject.deadline) {
+                const start = parseLocalDate(currentlyDisplayedProject.startDate);
+                const dl = parseLocalDate(currentlyDisplayedProject.deadline);
+                if (start && dl) {
+                    deadlineStr = formatDate(dl);
+                    const total = dl.getTime() - start.getTime();
+                    if (total > 0) {
+                        deadlineProg = Math.max(0, Math.min(100, ((time.getTime() - start.getTime()) / total) * 100));
+                    } else {
+                        deadlineProg = 100;
+                    }
+                    dl.setHours(23, 59, 59);
+                    if (time > dl) isOverdue = true;
+                }
+            }
+
+            // 5. Weather Fetcher (Updates every 30 mins)
             useEffect(() => {
                 const fetchWeather = async () => {
                     try {
@@ -478,36 +539,7 @@
                 return () => clearInterval(weatherTimer);
             }, []);
 
-            // Priority Project Math
-            const activeProject = useMemo(() => {
-                const active = (projects || []).filter(p => !['paid', 'completed'].includes(p.status));
-                const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
-                if (inProgress.length > 0) return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0))[0];
-                return active[active.length - 1] || null;
-            }, [projects]);
-
-            // Deadline Calculations
-            let deadlineProg = 0;
-            let isOverdue = false;
-            let deadlineStr = 'No deadline set';
-            if (activeProject && activeProject.startDate && activeProject.deadline) {
-                const start = parseLocalDate(activeProject.startDate);
-                const dl = parseLocalDate(activeProject.deadline);
-                if (start && dl) {
-                    deadlineStr = formatDate(dl);
-                    const total = dl.getTime() - start.getTime();
-                    if (total > 0) {
-                        deadlineProg = Math.max(0, Math.min(100, ((time.getTime() - start.getTime()) / total) * 100));
-                    } else {
-                        deadlineProg = 100;
-                    }
-                    // Add buffer to the day
-                    dl.setHours(23, 59, 59);
-                    if (time > dl) isOverdue = true;
-                }
-            }
-
-            // Build TV Calendar Data (Safe Arrays, No Flat)
+            // Build TV Calendar Data
             const tvCalendar = useMemo(() => {
                 const startM = new Date(time.getFullYear(), time.getMonth(), 1);
                 const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
@@ -523,7 +555,6 @@
                 return w;
             }, [time.getMonth()]);
             
-            // Format time safely for all browsers
             const timeRawStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const timeVal = timeRawStr.replace(/[a-zA-Z.]/g, '').trim();
             const ampmMatch = timeRawStr.match(/[a-zA-Z]+/);
@@ -548,7 +579,6 @@
                         </div>
                     )}
 
-                    {/* Exit Button - Positioned absolutely to top-right corner */}
                     <button onClick={onExit} className="absolute top-6 right-6 p-2 text-gray-600 hover:text-white transition group flex items-center gap-2 z-50">
                         <span className="text-xs font-bold uppercase tracking-widest opacity-0 group-hover:opacity-100 transition">Exit Dashboard</span>
                         <X size={32} />
@@ -586,7 +616,7 @@
                                 </div>
                             </div>
 
-                            {/* TV Calendar Container (Safe Arrays, No Flat) */}
+                            {/* TV Calendar Container (Highlights Displayed Project) */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[3rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col">
                                 <h3 className="text-2xl font-black text-gray-500 uppercase tracking-widest mb-6 text-center">{time.toLocaleString('default', { month: 'long', year: 'numeric' })}</h3>
                                 <div className="grid grid-cols-7 gap-2 mb-2 shrink-0">
@@ -598,16 +628,21 @@
                                             {week.map((day, dIdx) => {
                                                 const isToday = day.toDateString() === time.toDateString();
                                                 const isOtherMonth = day.getMonth() !== time.getMonth();
-                                                const hasDeadline = (projects || []).some(p => {
-                                                    if(!p.deadline || ['paid', 'completed'].includes(p.status)) return false;
-                                                    const d = parseLocalDate(p.deadline);
-                                                    return d && d.toDateString() === day.toDateString();
-                                                });
+                                                
+                                                // Dynamic highlight based on vertically scrolled project
+                                                let isDisplayedProjectDeadline = false;
+                                                if (currentlyDisplayedProject && currentlyDisplayedProject.deadline) {
+                                                    const d = parseLocalDate(currentlyDisplayedProject.deadline);
+                                                    isDisplayedProjectDeadline = d && d.toDateString() === day.toDateString();
+                                                }
 
                                                 return (
-                                                    <div key={dIdx} className={`h-full w-full flex flex-col items-center justify-center rounded-2xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-105 z-10' : 'text-gray-400 bg-gray-950/30'}`}>
+                                                    <div key={dIdx} className={`h-full w-full flex flex-col items-center justify-center rounded-2xl relative ${isOtherMonth ? 'opacity-20' : ''} ${isToday ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-105 z-10' : 'text-gray-400 bg-gray-950/30'} ${isDisplayedProjectDeadline ? 'ring-2 ring-red-500 beacon-pulse' : ''}`}>
                                                         <span className={`text-2xl font-bold ${isToday ? 'text-white' : 'text-gray-300'}`}>{day.getDate()}</span>
-                                                        {hasDeadline && <div className={`w-2 h-2 rounded-full absolute bottom-2 ${isToday ? 'bg-white' : 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.8)]'}`}></div>}
+                                                        
+                                                        {isDisplayedProjectDeadline && (
+                                                            <div className={`w-3 h-3 rounded-full absolute bottom-1.5 bg-red-500 shadow-[0_0_10px_rgba(239,68,68,1)] animate-pulse`}></div>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -622,58 +657,85 @@
                            ========================================= */}
                         <div className="flex-[2] grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-10 min-h-0">
                             
-                            {/* Shot Progress Dashboard */}
-                            <div className="col-span-3 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col justify-center relative overflow-hidden">
-                                {activeProject ? (
-                                    <div className="space-y-6 lg:space-y-8 relative z-10">
-                                        <div className="flex justify-between items-start">
-                                            <div className="pr-4">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <Briefcase size={20} className="text-blue-500" />
-                                                    <p className="text-blue-400 font-black uppercase tracking-widest text-base">{activeProject.client}</p>
-                                                </div>
-                                                <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight truncate">{activeProject.name}</h2>
-                                            </div>
-                                            <div className="text-right shrink-0">
-                                                <div className={`px-4 py-2 rounded-xl border text-sm font-black uppercase inline-block shadow-lg ${getStatusStyles(activeProject.status)}`}>{activeProject.status}</div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="space-y-6 pt-2">
-                                            {/* Production Progress Bar */}
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between text-sm lg:text-base font-bold text-gray-400 uppercase tracking-widest">
-                                                    <span>Production Render</span>
-                                                    <span className="text-white font-black">{activeProject.progress || 0}%</span>
-                                                </div>
-                                                <div className="w-full bg-gray-950 h-6 lg:h-8 rounded-full overflow-hidden border border-gray-800 shadow-inner relative">
-                                                    <div 
-                                                        className="h-full bg-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out absolute left-0 top-0 bottom-0 overflow-hidden" 
-                                                        style={{ width: `${activeProject.progress || 0}%` }}
-                                                    >
-                                                        {/* Scanning Light Beam Effect */}
-                                                        <div className="absolute inset-0 animate-sweep mix-blend-overlay"></div>
+                            {/* Shot Progress Dashboard - VERTICAL SCROLL ANIMATION */}
+                            <div className="col-span-3 bg-gray-900/40 rounded-[2rem] border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col relative overflow-hidden">
+                                
+                                {/* Top Progress Bar for Projects Carousel */}
+                                {activeProjects.length > 1 && (
+                                    <div className="absolute top-0 left-0 right-0 h-1 bg-gray-800 z-50">
+                                        <div className="h-full bg-blue-500 transition-all duration-[50ms] ease-linear" style={{width: `${projectsProgress}%`}}></div>
+                                    </div>
+                                )}
+                                
+                                <div className="absolute top-4 right-4 z-40 bg-gray-900/80 px-3 py-1 rounded-full border border-gray-800 text-[10px] font-bold text-gray-500 uppercase flex gap-2">
+                                    <Layers size={12}/> Tracking {activeProjects.length} Active
+                                </div>
+
+                                {activeProjects.length > 0 ? (
+                                    <div className="relative w-full h-full overflow-hidden">
+                                        <div 
+                                            className="absolute w-full transition-transform duration-1000 ease-in-out flex flex-col"
+                                            style={{ 
+                                                height: `${activeProjects.length * 100}%`,
+                                                transform: `translateY(-${(pIndex / activeProjects.length) * 100}%)` 
+                                            }}
+                                        >
+                                            {activeProjects.map((p, idx) => (
+                                                <div key={p.id} className="w-full p-8 flex flex-col justify-center" style={{ height: `${100 / activeProjects.length}%` }}>
+                                                    <div className="space-y-6 lg:space-y-8">
+                                                        <div className="flex justify-between items-start">
+                                                            <div className="pr-4">
+                                                                <div className="flex items-center gap-3 mb-2">
+                                                                    <Briefcase size={20} className="text-blue-500" />
+                                                                    <p className="text-blue-400 font-black uppercase tracking-widest text-base">{p.client}</p>
+                                                                </div>
+                                                                <h2 className="text-3xl lg:text-4xl font-black text-white leading-tight truncate">{p.name}</h2>
+                                                            </div>
+                                                            <div className="text-right shrink-0">
+                                                                <div className={`px-4 py-2 rounded-xl border text-sm font-black uppercase inline-block shadow-lg ${getStatusStyles(p.status)}`}>{p.status}</div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="space-y-6 pt-2">
+                                                            {/* Production Progress Bar */}
+                                                            <div className="space-y-2">
+                                                                <div className="flex justify-between text-sm lg:text-base font-bold text-gray-400 uppercase tracking-widest">
+                                                                    <span>Production Render</span>
+                                                                    <span className="text-white font-black">{p.progress || 0}%</span>
+                                                                </div>
+                                                                <div className="w-full bg-gray-950 h-6 lg:h-8 rounded-full overflow-hidden border border-gray-800 shadow-inner relative">
+                                                                    <div 
+                                                                        className="h-full bg-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.6)] transition-all duration-1000 ease-out absolute left-0 top-0 bottom-0 overflow-hidden" 
+                                                                        style={{ width: `${p.progress || 0}%` }}
+                                                                    >
+                                                                        <div className="absolute inset-0 animate-sweep mix-blend-overlay"></div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Deadline Duration Bar */}
+                                                            <div className="space-y-2">
+                                                                <div className="flex justify-between text-xs lg:text-sm font-bold text-gray-500 uppercase tracking-widest">
+                                                                    <span>Delivery Window</span>
+                                                                    <span className={isOverdue && idx === pIndex ? 'text-red-500 font-black' : 'text-gray-400'}>
+                                                                        {isOverdue && idx === pIndex ? 'OVERDUE' : `Deadline: ${p.deadline ? formatDate(parseLocalDate(p.deadline)) : 'None'}`}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="w-full bg-gray-950 h-3 rounded-full overflow-hidden shadow-inner">
+                                                                    <div 
+                                                                        className={`h-full ${isOverdue && idx === pIndex ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'bg-yellow-600'} transition-all duration-1000 ease-out`} 
+                                                                        style={{ width: `${idx === pIndex ? deadlineProg : 0}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-
-                                            {/* Deadline Duration Bar */}
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between text-xs lg:text-sm font-bold text-gray-500 uppercase tracking-widest">
-                                                    <span>Delivery Window</span>
-                                                    <span className={isOverdue ? 'text-red-500 font-black' : 'text-gray-400'}>{isOverdue ? 'OVERDUE' : `Deadline: ${deadlineStr}`}</span>
-                                                </div>
-                                                <div className="w-full bg-gray-950 h-3 rounded-full overflow-hidden shadow-inner">
-                                                    <div 
-                                                        className={`h-full ${isOverdue ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'bg-yellow-600'} transition-all duration-1000 ease-out`} 
-                                                        style={{ width: `${deadlineProg}%` }}
-                                                    />
-                                                </div>
-                                            </div>
+                                            ))}
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="text-center py-4 relative z-10">
+                                    <div className="text-center py-4 relative z-10 m-auto">
                                         <div className="w-16 h-16 bg-gray-800/50 rounded-full flex items-center justify-center mx-auto mb-4"><Target size={28} className="text-gray-600"/></div>
                                         <h2 className="text-2xl font-black text-gray-500 tracking-tight">No Active Shots</h2>
                                         <p className="text-gray-600 mt-2 text-sm font-medium">Dashboard is waiting for a new ticket to track.</p>
@@ -683,10 +745,10 @@
 
                             {/* Scrolling Reminders Tab */}
                             <div className="col-span-2 bg-gray-900/40 rounded-[2rem] p-8 border border-gray-800 shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl relative">
-                                {/* Thin Carousel Progress Bar at the top */}
+                                {/* Thin Carousel Progress Bar at the top (20s) */}
                                 {(reminders || []).length > 2 && (
                                     <div className="absolute top-0 left-0 right-0 h-1 bg-gray-800">
-                                        <div className="h-full bg-blue-500 transition-all duration-[50ms] ease-linear" style={{width: `${carouselProgress}%`}}></div>
+                                        <div className="h-full bg-yellow-500 transition-all duration-[50ms] ease-linear" style={{width: `${remindersProgress}%`}}></div>
                                     </div>
                                 )}
                                 
@@ -1016,7 +1078,6 @@
             );
         };
 
-        // --- NEW REMINDERS MANAGER ---
         const RemindersManager = ({ isOpen, onClose, reminders, onUpdateReminders }) => {
             const [form, setForm] = useState({ title: '', time: '', offset: 15 });
             
@@ -1054,7 +1115,6 @@
                             </div>
                             <div className="space-y-2">
                                 {(reminders || []).map((r) => {
-                                    // Calculate actual alert time for display
                                     const [h, m] = r.time.split(':').map(Number);
                                     const d = new Date(); d.setHours(h, m - r.offset, 0, 0);
                                     const alertTimeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
