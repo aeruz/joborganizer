@@ -204,7 +204,13 @@
             if (token && gistId) {
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}` }
+                        headers: { 
+                            Authorization: `token ${token}`,
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0'
+                        },
+                        cache: 'reload'
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -401,6 +407,7 @@
             const [time, setTime] = useState(new Date());
             const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
             const [activeAlarm, setActiveAlarm] = useState(null);
+            const [isSyncing, setIsSyncing] = useState(false);
             
             // Reminders Carousel State (20s)
             const [rIndex, setRIndex] = useState(0);
@@ -412,10 +419,16 @@
 
             const triggeredAlarms = useRef({});
 
-            // 1. Core Clock & Sync Engine
+            // 1. Core Clock & Background Sync Engine (Auto pulls every 30s silently)
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
-                const syncTimer = setInterval(() => onAutoSync(true), 60000); // Silent auto-sync every 60s
+                
+                const syncTimer = setInterval(async () => {
+                    setIsSyncing(true);
+                    await onAutoSync(true);
+                    setTimeout(() => setIsSyncing(false), 2000); // Visual indicator stays for at least 2s
+                }, 30000); // 30 seconds
+                
                 return () => {
                     clearInterval(clockTimer);
                     clearInterval(syncTimer);
@@ -587,6 +600,12 @@
                     <div className="absolute top-0 right-0 w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[150px] mix-blend-screen animate-spin-slow pointer-events-none"></div>
                     <div className="absolute bottom-0 left-0 w-[50%] h-[50%] bg-purple-900/10 rounded-full blur-[150px] mix-blend-screen animate-spin-slow pointer-events-none" style={{animationDirection: 'reverse'}}></div>
                     
+                    {/* TV SYNC STATUS DOT */}
+                    <div className="absolute top-6 left-6 z-[150] bg-gray-900/80 px-3 py-1.5 rounded-full border border-gray-800 shadow-lg text-[10px] font-bold text-gray-400 uppercase flex items-center gap-2 backdrop-blur-sm transition-all">
+                        <div className={`w-2.5 h-2.5 rounded-full shadow-inner ${isSyncing ? 'bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]' : 'bg-gray-700'}`}></div>
+                        {isSyncing ? 'Syncing...' : 'Cloud Active'}
+                    </div>
+
                     {/* ALARM OVERLAY */}
                     {activeAlarm && (
                         <div className="fixed inset-0 z-[200] bg-red-950/95 flex flex-col items-center justify-center fade-in backdrop-blur-md">
@@ -604,7 +623,7 @@
                         <X size={32} />
                     </button>
                     
-                    <div className="flex flex-col gap-6 lg:gap-10 h-full min-h-0 relative z-10">
+                    <div className="flex flex-col gap-6 lg:gap-10 h-full min-h-0 relative z-10 pt-4">
                         
                         {/* =========================================
                             TOP ROW: 60% HEIGHT (MASSIVE CLOCKS/CAL) 
@@ -1307,8 +1326,13 @@
                 if (!isSilent) showToast('Downloading from GitHub...', 'info');
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
-                        headers: { Authorization: `token ${token}`, 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
-                        cache: 'no-store'
+                        headers: { 
+                            Authorization: `token ${token}`, 
+                            'Cache-Control': 'no-cache, no-store, must-revalidate', 
+                            'Pragma': 'no-cache',
+                            'Expires': '0' 
+                        },
+                        cache: 'reload'
                     });
                     
                     if (!res.ok) throw new Error(`GitHub Error ${res.status}`);
@@ -1318,9 +1342,20 @@
                     if (!content) throw new Error('File not found inside your Gist.');
                     
                     const parsedData = JSON.parse(content);
-                    setData(parsedData);
-                    saveLocalData(parsedData);
-                    if (!isSilent) showToast('✅ Success! Downloaded latest cloud data.', 'success');
+                    
+                    // Smart Check: Only trigger a re-render if the cloud actually has newer data
+                    setData(prev => {
+                        if (parsedData.lastUpdated && prev.lastUpdated && parsedData.lastUpdated <= prev.lastUpdated) {
+                            return prev; 
+                        }
+                        
+                        setTimeout(() => {
+                            saveLocalData(parsedData);
+                            if (!isSilent) showToast('✅ Success! Downloaded latest cloud data.', 'success');
+                        }, 0);
+                        
+                        return parsedData;
+                    });
                     
                 } catch (e) {
                     console.error(e);
@@ -1328,13 +1363,22 @@
                 }
             };
 
+            // Global Polling when NOT in screensaver (runs every 5 minutes)
+            useEffect(() => {
+                if (!githubToken || view === 'screensaver') return;
+                const interval = setInterval(() => {
+                    forcePullFromCloud(true);
+                }, 5 * 60 * 1000); // 5 minutes
+                return () => clearInterval(interval);
+            }, [githubToken, view]);
+
             // --- MANUAL PUSH TO CLOUD ---
             const forcePushToCloud = async () => {
                 if (!githubToken) return;
                 
                 const token = safeGetStorage(GITHUB_TOKEN_KEY);
                 let gistId = safeGetStorage(LOCAL_GIST_KEY);
-                const dataToSave = { ...data, lastUpdated: Date.now() };
+                const dataToSave = { ...data, lastUpdated: Date.now() }; // Tag with absolute latest timestamp
                 const content = JSON.stringify(dataToSave, null, 2);
                 
                 showToast('Uploading to GitHub...', 'info');
@@ -1360,6 +1404,7 @@
                         safeSetStorage(LOCAL_GIST_KEY, gist.id);
                         showToast('✅ Created new Cloud File! Sync enabled.', 'success');
                     }
+                    setData(dataToSave);
                     saveLocalData(dataToSave);
                 } catch(e) {
                     console.error(e);
@@ -1388,7 +1433,7 @@
             useEffect(() => { 
                 if (isFirstMount.current) return;
                 if (!loading && githubToken) {
-                    saveLocalData({ ...data, lastUpdated: Date.now() });
+                    saveLocalData(data);
                 }
             }, [data, loading, githubToken]);
 
@@ -1418,16 +1463,16 @@
                 return groups;
             }, [statusGroups.completed]);
 
-            const handleUpdateLists = (l) => setData(prev => ({ ...prev, clients: l }));
-            const handleUpdateReminders = (r) => setData(prev => ({ ...prev, reminders: r }));
-            const handleAddLeave = (l) => setData(prev => ({ ...prev, leaves: [...(prev.leaves || []), l] }));
-            const handleDeleteLeave = (id) => setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(x=>x.id!==id) }));
-            const handleUpdateHolidays = (h) => setData(prev => ({ ...prev, holidays: h }));
-            const handleUpdateTotalLeaves = (v) => setData(prev => ({ ...prev, totalLeaves: v }));
+            const handleUpdateLists = (l) => setData(prev => ({ ...prev, clients: l, lastUpdated: Date.now() }));
+            const handleUpdateReminders = (r) => setData(prev => ({ ...prev, reminders: r, lastUpdated: Date.now() }));
+            const handleAddLeave = (l) => setData(prev => ({ ...prev, leaves: [...(prev.leaves || []), l], lastUpdated: Date.now() }));
+            const handleDeleteLeave = (id) => setData(prev => ({ ...prev, leaves: (prev.leaves || []).filter(x=>x.id!==id), lastUpdated: Date.now() }));
+            const handleUpdateHolidays = (h) => setData(prev => ({ ...prev, holidays: h, lastUpdated: Date.now() }));
+            const handleUpdateTotalLeaves = (v) => setData(prev => ({ ...prev, totalLeaves: v, lastUpdated: Date.now() }));
             
             const handleImport = (d) => { 
                 if(d && d.projects) {
-                    setData(d); 
+                    setData({...d, lastUpdated: Date.now()}); 
                     showToast('Local JSON Imported! Click the Green Upload button to push it to the cloud.', 'info');
                 }
             };
@@ -1437,7 +1482,7 @@
                     const isPaid = p.status === 'paid'; const isCompleted = p.status === 'completed';
                     const projects = prev.projects || [];
                     const list = editingProject ? projects.map(x=>x.id===p.id?{...x, ...p, paymentDate: (isPaid && !x.paymentDate) ? formatDate(new Date()) : x.paymentDate, completionDate: (isCompleted && !x.completionDate) ? formatDate(new Date()) : x.completionDate }:x) : [...projects, {...p, id:crypto.randomUUID(), paymentDate: isPaid ? formatDate(new Date()) : '', completionDate: isCompleted ? formatDate(new Date()) : ''}];
-                    return { ...prev, projects: list };
+                    return { ...prev, projects: list, lastUpdated: Date.now() };
                 });
             };
 
@@ -1454,14 +1499,14 @@
                         }
                         return x;
                     });
-                    return { ...prev, projects };
+                    return { ...prev, projects, lastUpdated: Date.now() };
                 });
             };
 
             const handleRevisionNeeded = (p) => {
                 setData(prev => {
                     const projects = (prev.projects || []).map(x => (x.id === p.id) ? { ...x, status: 'revision', paymentDate: '', completionDate: '' } : x);
-                    return { ...prev, projects };
+                    return { ...prev, projects, lastUpdated: Date.now() };
                 });
             };
 
@@ -1475,7 +1520,7 @@
                         }
                         return x;
                     });
-                    return { ...prev, projects };
+                    return { ...prev, projects, lastUpdated: Date.now() };
                 });
             };
 
@@ -1612,7 +1657,7 @@
                                                 onSelect={()=>setActiveProject(p)} 
                                                 onAdvance={handleAdvanceStage} 
                                                 onRevision={handleRevisionNeeded}
-                                                onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x)}))}
+                                                onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x), lastUpdated: Date.now()}))}
                                             />
                                         ))}
                                     </div>
@@ -1680,10 +1725,10 @@
                         </div>
                     )}
 
-                    <ProjectModal isOpen={isModalOpen} onClose={()=>setIsModalOpen(false)} onSave={handleSaveProject} onDelete={(id)=>setData(prev=>({...prev, projects:(prev.projects || []).filter(x=>x.id!==id)}))} initialData={editingProject} clients={data.clients} />
+                    <ProjectModal isOpen={isModalOpen} onClose={()=>setIsModalOpen(false)} onSave={handleSaveProject} onDelete={(id)=>setData(prev=>({...prev, projects:(prev.projects || []).filter(x=>x.id!==id), lastUpdated: Date.now()}))} initialData={editingProject} clients={data.clients} />
                     <ListManager isOpen={isListOpen} onClose={()=>setIsListOpen(false)} onUpdateLists={handleUpdateLists} initialClients={data.clients} allData={data} onImport={handleImport} />
                     <RemindersManager isOpen={isRemindersOpen} onClose={()=>setIsRemindersOpen(false)} reminders={data.reminders} onUpdateReminders={handleUpdateReminders} />
-                    {activeProject && <ProjectDetails project={activeProject} onClose={()=>setActiveProject(null)} onEdit={()=>{ setEditingProject(activeProject); setIsModalOpen(true); setActiveProject(null); }} onAdvance={handleAdvanceStage} onRevert={handleRevertStage} onRevision={handleRevisionNeeded} onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x)}))} />}
+                    {activeProject && <ProjectDetails project={activeProject} onClose={()=>setActiveProject(null)} onEdit={()=>{ setEditingProject(activeProject); setIsModalOpen(true); setActiveProject(null); }} onAdvance={handleAdvanceStage} onRevert={handleRevertStage} onRevision={handleRevisionNeeded} onUpdate={(id, up)=>setData(prev => ({...prev, projects: (prev.projects || []).map(x=>x.id===id?{...x, ...up}:x), lastUpdated: Date.now()}))} />}
                 </div>
             );
         }
