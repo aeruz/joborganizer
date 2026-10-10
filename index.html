@@ -339,13 +339,13 @@
         };
 
         // --- NEW SVG ANALOG CLOCK ---
-        const AnalogClock = ({ time }) => {
+        const AnalogClock = ({ time, reminders = [] }) => {
             const seconds = time.getSeconds();
             const minutes = time.getMinutes();
             const hours = time.getHours() % 12 + minutes / 60;
 
             return (
-                <svg width="220" height="220" viewBox="0 0 200 200" className="transform -rotate-90 drop-shadow-2xl">
+                <svg viewBox="0 0 200 200" className="w-[260px] h-[260px] lg:w-[400px] lg:h-[400px] transform -rotate-90 drop-shadow-2xl">
                     {/* Background Ring */}
                     <circle cx="100" cy="100" r="90" fill="none" stroke="#1f2937" strokeWidth="2" opacity="0.5" />
                     
@@ -366,12 +366,32 @@
                             />
                         );
                     })}
+
+                    {/* Reminders Dots (Overlays the clock ring) */}
+                    {reminders.map((r, i) => {
+                        if (!r.time) return null;
+                        const [h, m] = r.time.split(':').map(Number);
+                        // Map 12-hour time to angle (0 to 2PI)
+                        const angle = (((h % 12) + m / 60) / 12) * Math.PI * 2;
+                        const x = 100 + 90 * Math.cos(angle);
+                        const y = 100 + 90 * Math.sin(angle);
+                        return (
+                            <circle
+                                key={`rem-${i}`}
+                                cx={x} cy={y} r="5"
+                                fill="#ef4444"
+                                className="drop-shadow-[0_0_12px_rgba(239,68,68,1)] animate-pulse"
+                                style={{ transformOrigin: `${x}px ${y}px` }}
+                            />
+                        );
+                    })}
+
                     {/* Hour Hand */}
-                    <line x1="100" y1="100" x2={100 + 40 * Math.cos((hours / 12) * Math.PI * 2)} y2={100 + 40 * Math.sin((hours / 12) * Math.PI * 2)} stroke="#9ca3af" strokeWidth="8" strokeLinecap="round" />
+                    <line x1="100" y1="100" x2={100 + 45 * Math.cos((hours / 12) * Math.PI * 2)} y2={100 + 45 * Math.sin((hours / 12) * Math.PI * 2)} stroke="#9ca3af" strokeWidth="7" strokeLinecap="round" />
                     {/* Minute Hand */}
-                    <line x1="100" y1="100" x2={100 + 65 * Math.cos((minutes / 60) * Math.PI * 2)} y2={100 + 65 * Math.sin((minutes / 60) * Math.PI * 2)} stroke="white" strokeWidth="5" strokeLinecap="round" className="drop-shadow-lg" />
+                    <line x1="100" y1="100" x2={100 + 70 * Math.cos((minutes / 60) * Math.PI * 2)} y2={100 + 70 * Math.sin((minutes / 60) * Math.PI * 2)} stroke="white" strokeWidth="4" strokeLinecap="round" className="drop-shadow-lg" />
                     {/* Center Dot */}
-                    <circle cx="100" cy="100" r="8" fill="#3b82f6" className="drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]"/>
+                    <circle cx="100" cy="100" r="6" fill="#3b82f6" className="drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]"/>
                 </svg>
             );
         };
@@ -595,15 +615,17 @@
                             <div className="col-span-3 bg-gray-900/40 rounded-[3rem] p-10 border border-gray-800 shadow-2xl backdrop-blur-xl flex flex-col justify-between relative overflow-hidden">
                                 <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent mix-blend-overlay"></div>
                                 
-                                <div className="flex justify-between items-center h-full">
-                                    <div className="flex items-center gap-8 lg:gap-12 pl-4">
-                                        <div className="shrink-0 drop-shadow-2xl">
-                                            <AnalogClock time={time} />
+                                <div className="flex justify-between items-center h-full w-full">
+                                    <div className="flex items-center gap-6 lg:gap-12 pl-4 flex-1">
+                                        <div className="shrink-0 drop-shadow-2xl flex items-center justify-center">
+                                            {/* Passed reminders down to AnalogClock */}
+                                            <AnalogClock time={time} reminders={reminders} />
                                         </div>
-                                        <div>
-                                            <h1 className="text-7xl lg:text-[7.5rem] font-black text-white leading-none tracking-tighter drop-shadow-lg flex items-end">
+                                        <div className="flex-1">
+                                            {/* Digital time font size reduced significantly */}
+                                            <h1 className="text-6xl lg:text-[5.5rem] font-black text-white leading-none tracking-tighter drop-shadow-lg flex items-end">
                                                 {timeVal}
-                                                <span className="text-4xl lg:text-5xl text-gray-500 ml-4 tracking-normal uppercase pb-2">{ampmStr}</span>
+                                                <span className="text-3xl lg:text-4xl text-gray-500 ml-4 tracking-normal uppercase pb-2">{ampmStr}</span>
                                             </h1>
                                             <p className="text-2xl lg:text-3xl text-blue-500 font-bold tracking-tight mt-4 drop-shadow-sm">{time.toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
                                         </div>
