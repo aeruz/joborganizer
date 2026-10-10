@@ -42,7 +42,7 @@
         .animate-spin-slow { animation: spinSlow 40s linear infinite; }
         .animate-slide-up-fade { animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         
-        /* Pure CSS Progress Bar */
+        /* Pure CSS Progress Bar - Zero CPU Load */
         .animate-fill-bar { animation: fillBar 5s linear infinite; }
         
         .animate-sweep {
@@ -169,7 +169,7 @@
 
         const calculateTicketValue = (p, clients = []) => {
             const client = (clients || []).find(c => c.name === p.client);
-            if (client?.mode === 'fixed') return parseFloat(client.defaultRate || 0);
+            if (client && client.mode === 'fixed') return parseFloat(client.defaultRate || 0);
             return (parseFloat(p.shotRate || 0) * (parseFloat(p.shotCount) || 1));
         };
 
@@ -185,7 +185,7 @@
                         clients: Array.isArray(p.clients) ? p.clients : [],
                         holidays: Array.isArray(p.holidays) ? p.holidays : [],
                         leaves: Array.isArray(p.leaves) ? p.leaves : [],
-                        reminders: Array.isArray(p.reminders) ? p.reminders : [],
+                        reminders: Array.isArray(p.reminders) ? p.reminders : [], // Reminders added
                         totalLeaves: p.totalLeaves ?? 22,
                         lastUpdated: p.lastUpdated || Date.now()
                     };
@@ -383,15 +383,17 @@
             const [weather, setWeather] = useState({ temp: '--', condition: 'Updating...' });
             const [activeAlarm, setActiveAlarm] = useState(null);
             
+            // Carousel States
             const [rIndex, setRIndex] = useState(0);
             const [pIndex, setPIndex] = useState(0);
             
             const triggeredAlarms = useRef({});
 
-            // Pre-calculate Active Projects for the Carousel
+            // Pre-calculate Active Projects for the Carousel as a strictly defined Array
             const inProgressProjects = useMemo(() => {
                 const active = (projects || []).filter(p => p.status !== 'paid' && p.status !== 'completed');
                 const inProgress = active.filter(p => p.progress > 0 && p.progress < 100);
+                
                 if (inProgress.length > 0) {
                     return [...inProgress].sort((a,b) => (b.progress || 0) - (a.progress || 0));
                 }
@@ -456,9 +458,11 @@
             // 3. Carousel Engine for Reminders (5 second sweeps using CSS)
             useEffect(() => {
                 if (!reminders || reminders.length <= 2) return;
+                
                 const carouselTimer = setInterval(() => {
                     setRIndex(prev => prev + 2);
                 }, 5000);
+
                 return () => clearInterval(carouselTimer);
             }, [reminders]);
 
@@ -523,7 +527,7 @@
                 }
             }
 
-            // Build TV Calendar Data Securely (No .flat())
+            // Build TV Calendar Data Securely
             const tvCalendar = useMemo(() => {
                 const startM = new Date(time.getFullYear(), time.getMonth(), 1);
                 const startD = new Date(startM); startD.setDate(startD.getDate() - startD.getDay());
@@ -560,7 +564,7 @@
                             <h1 className="text-6xl md:text-8xl font-black text-white mb-6 uppercase tracking-widest text-center">Reminder</h1>
                             <p className="text-4xl md:text-6xl font-bold text-red-200 text-center max-w-4xl leading-tight">{activeAlarm.title}</p>
                             <p className="text-2xl md:text-4xl text-red-400 mt-6 font-mono font-bold tracking-tight">Scheduled Event: {activeAlarm.eventTimeStr}</p>
-                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-2xl md:text-3xl font-black tracking-widest hover:scale-105 transition shadow-2xl relative z-10">DISMISS</button>
+                            <button onClick={()=>setActiveAlarm(null)} className="mt-16 px-12 py-6 bg-red-600 rounded-3xl text-white text-2xl md:text-3xl font-black tracking-widest transition shadow-2xl relative z-10">DISMISS</button>
                         </div>
                     )}
 
