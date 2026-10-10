@@ -202,14 +202,13 @@
             const gistId = safeGetStorage(LOCAL_GIST_KEY);
             if (token && gistId) {
                 try {
+                    // Removed CORS-breaking Cache-Control/Pragma headers. ?t=Date.now() is enough.
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
                         headers: { 
                             Authorization: `token ${token}`,
-                            'Cache-Control': 'no-cache, no-store, must-revalidate',
-                            'Pragma': 'no-cache',
-                            'Expires': '0'
+                            'Accept': 'application/vnd.github.v3+json'
                         },
-                        cache: 'reload'
+                        cache: 'no-store'
                     });
                     if (res.ok) {
                         const gist = await res.json();
@@ -1326,12 +1325,10 @@
                 try {
                     const res = await fetch(`https://api.github.com/gists/${gistId}?t=${Date.now()}`, {
                         headers: { 
-                            Authorization: `token ${token}`, 
-                            'Cache-Control': 'no-cache, no-store, must-revalidate', 
-                            'Pragma': 'no-cache',
-                            'Expires': '0' 
+                            Authorization: `token ${token}`,
+                            'Accept': 'application/vnd.github.v3+json'
                         },
-                        cache: 'reload'
+                        cache: 'no-store'
                     });
                     
                     if (!res.ok) throw new Error(`GitHub Error ${res.status}`);
