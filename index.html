@@ -104,7 +104,6 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        // Confirmed Safe Icons
         import { 
             Plus, DollarSign, Clock, CheckCircle, Box, Calendar, Edit2, 
             Trash2, X, Save, TrendingUp, CreditCard, Briefcase, 
@@ -184,7 +183,7 @@
                         clients: Array.isArray(p.clients) ? p.clients : [],
                         holidays: Array.isArray(p.holidays) ? p.holidays : [],
                         leaves: Array.isArray(p.leaves) ? p.leaves : [],
-                        reminders: Array.isArray(p.reminders) ? p.reminders : [], // Reminders added
+                        reminders: Array.isArray(p.reminders) ? p.reminders : [], 
                         totalLeaves: p.totalLeaves ?? 22,
                         lastUpdated: p.lastUpdated || Date.now()
                     };
@@ -419,15 +418,15 @@
 
             const triggeredAlarms = useRef({});
 
-            // 1. Core Clock & Background Sync Engine (Auto pulls every 30s silently)
+            // 1. Core Clock & Unconditional Sync Engine (Auto pulls every 60s)
             useEffect(() => {
                 const clockTimer = setInterval(() => setTime(new Date()), 1000);
                 
                 const syncTimer = setInterval(async () => {
                     setIsSyncing(true);
-                    await onAutoSync(true);
-                    setTimeout(() => setIsSyncing(false), 2000); // Visual indicator stays for at least 2s
-                }, 30000); // 30 seconds
+                    await onAutoSync(true); // Fetches and applies unconditionally
+                    setTimeout(() => setIsSyncing(false), 2000); 
+                }, 60000); // exactly 1 minute
                 
                 return () => {
                     clearInterval(clockTimer);
@@ -1343,19 +1342,10 @@
                     
                     const parsedData = JSON.parse(content);
                     
-                    // Smart Check: Only trigger a re-render if the cloud actually has newer data
-                    setData(prev => {
-                        if (parsedData.lastUpdated && prev.lastUpdated && parsedData.lastUpdated <= prev.lastUpdated) {
-                            return prev; 
-                        }
-                        
-                        setTimeout(() => {
-                            saveLocalData(parsedData);
-                            if (!isSilent) showToast('✅ Success! Downloaded latest cloud data.', 'success');
-                        }, 0);
-                        
-                        return parsedData;
-                    });
+                    // Unconditional update: Ignores timestamp, forces UI to match cloud data
+                    setData(parsedData);
+                    saveLocalData(parsedData);
+                    if (!isSilent) showToast('✅ Success! Downloaded latest cloud data.', 'success');
                     
                 } catch (e) {
                     console.error(e);
